@@ -73,7 +73,10 @@ Usage:
 
 def create_cargo_config_for_env(env: Optional[dict[str, str]] = None) -> None:
     """
-    Create a `.cargo/config.toml` file.
+    Create a `.cargo/config.toml` file that sets the environment variables from
+    `env`.
+
+    `PKG_CONFIG_LIBDIR` always gets set to point to FFmpeg's `pkgconfig` folder.
     """
 
     if env is None:
@@ -232,6 +235,8 @@ def windows() -> None:
     libclang_path = get_libclang_path()
     clang_include_dir = try_to_get_clang_include_dir()
 
+    # See: https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
+
     # We need to set `LIBCLANG_PATH` so that `ffmpeg-next` can make bindings.
     env = {
         "LIBCLANG_PATH": libclang_path,
@@ -244,7 +249,6 @@ def windows() -> None:
         # or something else weird.
         env["BINDGEN_EXTRA_CLANG_ARGS"] = f"-I{clang_include_dir}"
 
-    # See https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
     create_cargo_config_for_env(env)
 
 
@@ -253,15 +257,39 @@ def mac_os() -> None:
     Handles build setup for macOS builds.
     """
 
-    def ensure_brew_is_installed() -> None:
+    # If the user doesn't have `clang` there's a good chance they need to run
+    # `xcode-select --install`. This is technically optional.
+    try:
+        sh.ensure_cmd_exists("clang", non_fatal=True)
+    except:
+        if user.confirm(
+            "`clang` could not be found. You may need to install Xcode's "
+            + "Command Line Tools. Install now?"
+        ):
+            log.info(
+                "Installing Xcode's Command Line Tools. "
+                + "This may take a while..."
+            )
+            sh.run_cmd("xcode-select", "--install")
+        else:
+            log.warning(
+                "Continuing without finding `clang`. The build may fail."
+            )
+    else:
+        log.info("Found `clang`.")
+
+    def check_for_brew() -> bool:
         try:
             sh.ensure_cmd_exists("brew", non_fatal=True)
         except sh.DoesntExistException:
             if not user.confirm(
-                "You do not have the Homebrew package manager installed."
-                + " Start Homebrew install? (you'll need to be a system admin)"
+                "Building on macOS requires `pkg-config`, usually installed "
+                + "through the Homebrew package manager. You do not have "
+                + "Homebrew installed. Start Homebrew install? (you'll need "
+                + "to be a system admin)"
             ):
-                log.fatal("Homebrew is required.")
+                log.info("Continuing without checking for `pkg-config`...")
+                return False
 
             # This comes from the download instructions here: https://brew.sh/
             sh.run_cmd(
@@ -271,6 +299,7 @@ def mac_os() -> None:
             sh.ensure_cmd_exists("brew")
 
         log.info("Found Homebrew package manager.")
+        return True
 
     last_installed_pkgs: Optional[list[dict[str, Any]]] = None
 
@@ -319,6 +348,7 @@ def mac_os() -> None:
             f"It doesn't look like you have `{pkg_name}` installed."
             + " Install with Homebrew?"
         ):
+            log.info(f"Continuing without installing `{pkg_name}`...")
             return False
 
         log.info(
@@ -340,9 +370,24 @@ def mac_os() -> None:
 
         return True
 
-    ensure_brew_is_installed()
-    if not is_installed_with_brew("pkg-config", ask_to_install=True):
-        log.warning("Continuing without installing `pkg-config`.")
+    # The user needs `pkg-config`, we'll let them install through Homebrew if
+    # they don't have it. This is technically optional.
+    try:
+        sh.ensure_cmd_exists("pkg-config", non_fatal=True)
+    except sh.DoesntExistException:
+        log.info("Couldn't find `pkg-config`. Checking with Homebrew...")
+        if check_for_brew() and is_installed_with_brew(
+            "pkg-config", ask_to_install=True
+        ):
+            log.info("Found `pkg-config` with Homebrew.")
+        else:
+            log.warning(
+                "Continuing without finding `pkg-config`. The build may fail."
+            )
+    else:
+        log.info("Found `pkg-config`.")
+
+    create_cargo_config_for_env()
 
 
 def main() -> None:
