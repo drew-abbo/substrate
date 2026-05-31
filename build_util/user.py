@@ -198,7 +198,7 @@ def ask_to_download(
     class PrintState:
         bytes_downloaded: int = 0
         download_size: int = 0
-        print_interval: float = (1 / 3) if overwrite_output else 1.0
+        print_interval: float = (1 / 20) if overwrite_output else 1.0
         last_print_time: float = 0.0
         longest_line: int = 0
         last_bytes_downloaded: int = 0

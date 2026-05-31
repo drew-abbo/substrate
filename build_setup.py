@@ -424,7 +424,7 @@ def main() -> None:
     elif sh.build_os() == "linux":
         log.fatal("unimplemented")
 
-    if args.no_cache:
+    if args.no_cargo_clean:
         log.warning(
             "The build directory has not been cleaned "
             + "(`--no-cargo-clean` provided)."
