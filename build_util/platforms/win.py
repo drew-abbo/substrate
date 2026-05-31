@@ -9,7 +9,7 @@ from functools import cache
 from .. import log
 from .. import sh
 
-assert platform.system().lower() == "windows"
+assert sh.build_os() == "windows", "Don't import on non-Windows platforms."
 
 
 @cache

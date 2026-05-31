@@ -17,6 +17,9 @@ times.
 The `--no-extras` flag skips creating/packaging things like installers or zip
 archives.
 
+The `--no-cache` flag makes the script delete any cached build script data
+before executing.
+
 The `--clean` flag just removes the directory/file specified by `-o` (or its
 default).
 
@@ -25,7 +28,6 @@ Make sure to run `build_setup.py` before running this.
 
 import sys
 import os
-import platform
 import json
 import re
 import time
@@ -39,9 +41,7 @@ from typing import TypedDict, Optional, Union
 import build_util.log as log
 import build_util.sh as sh
 import build_util.user as user
-import build_util.build_ffmpeg as build_ffmpeg
-
-SYSTEM = platform.system().lower()
+import build_util.ffmpeg_build as ffmpeg_build
 
 
 @dataclass
@@ -49,6 +49,7 @@ class Args:
     out: str
     no_opt: bool
     no_extras: bool
+    no_cache: bool
     clean: bool
 
 
@@ -65,13 +66,15 @@ Usage:
         [-o <OUTPUT_PATH>]
         [--no-opt]
         [--no-extras]
+        [--no-cache]
         [--clean]
     {ARG_0} --help
 """.rstrip()
 
+    out = None
     no_opt = False
     no_extras = False
-    out = None
+    no_cache = False
     clean = False
 
     clean_incompatible_arg = None
@@ -116,9 +119,6 @@ Usage:
                 )
             out = arg
 
-        elif arg == "--clean":
-            clean = True
-
         elif arg == "--no-opt":
             no_opt = True
             clean_incompatible_arg = clean_incompatible_arg or arg
@@ -126,6 +126,12 @@ Usage:
         elif arg == "--no-extras":
             no_extras = True
             clean_incompatible_arg = clean_incompatible_arg or arg
+
+        elif arg == "--no-cache":
+            no_cache = True
+
+        elif arg == "--clean":
+            clean = True
 
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
@@ -146,6 +152,7 @@ Usage:
         out,
         no_opt,
         no_extras,
+        no_cache,
         clean,
     )
 
@@ -290,7 +297,7 @@ def stage_license_info(staging_dir: str) -> None:
     """
 
     cargo_about_name = "cargo-about"
-    if SYSTEM == "windows":
+    if sh.build_os() == "windows":
         cargo_about_name += ".exe"
     cargo_about = f"{sh.cache_dir()}/{cargo_about_name}"
 
@@ -343,8 +350,8 @@ def stage_license_info(staging_dir: str) -> None:
         f"{license_dir}/template-about.hbs",
         {
             "ffmpeg_license_name": ffmpeg_license_name,
-            "ffmpeg_url": build_ffmpeg.FFMPEG_URL,
-            "ffmpeg_version": build_ffmpeg.FFMPEG_VERSION,
+            "ffmpeg_url": ffmpeg_build.FFMPEG_URL,
+            "ffmpeg_version": ffmpeg_build.FFMPEG_VERSION,
             "ffmpeg_license_text": html.escape(ffmpeg_license_text),
         },
         dest_file=temp_template,
@@ -398,14 +405,14 @@ def build_and_stage_artifact(
     crate_kind = get_crate_kind(crate_name)
 
     if crate_kind == "bin":
-        prefix, suffix = "", (".exe" if SYSTEM == "windows" else "")
+        prefix, suffix = "", (".exe" if sh.build_os() == "windows" else "")
         profile = "package-small"
     elif crate_kind in ("dylib", "cdylib"):
-        if SYSTEM == "windows":
+        if sh.build_os() == "windows":
             prefix, suffix = "", ".dll"
-        elif SYSTEM == "darwin":  # macOS
+        elif sh.build_os() == "darwin":  # macOS
             prefix, suffix = "lib", ".dylib"
-        elif SYSTEM == "linux":
+        elif sh.build_os() == "linux":
             prefix, suffix = "", ".so"
         profile = "package-fast"
     else:
@@ -472,17 +479,13 @@ def create_staging_dir(out_dir: str) -> str:
     be staged.
     """
 
-    arch = sh.get_supported_arch()
-    if SYSTEM == "windows":
+    if sh.build_os() == "windows":
         os_name = "Windows"
-    elif SYSTEM == "darwin":
+    elif sh.build_os() == "darwin":
         os_name = "macOS"
-    elif SYSTEM == "linux":
+    elif sh.build_os() == "linux":
         os_name = "Linux"
-    else:
-        os_name = None
-    if arch is None or os_name is None:
-        log.fatal("Unsupported system or architecture.")
+    arch = sh.build_arch()
 
     staging_dir = f"{out_dir}{os.sep}Substrate-{app_version()}-{os_name}-{arch}"
 
@@ -535,9 +538,6 @@ def windows(out_dir: str, args: Args) -> None:
     """
 
     from build_util.platforms import win
-
-    if sh.get_supported_arch() != "x86_64":
-        log.fatal("Windows builds currently only support x86_64.")
 
     staging_dir = create_staging_dir(out_dir)
     dump_common_resources(staging_dir)
@@ -644,9 +644,6 @@ def mac_os(out_dir: str, args: Args) -> None:
     """
     Handles macOS-specific packaging steps.
     """
-
-    if sh.get_supported_arch() is None:
-        log.fatal("macOS builds only support x86_64 and arm64")
 
     # Ensure Xcode's Command Line Tools are installed.
     try:
@@ -818,6 +815,11 @@ def main() -> None:
 
     sh.require_script_in_working_dir()
 
+    if args.no_cache and sh.rm_path(
+        sh.cache_dir(create=False), allow_missing=True
+    ):
+        log.info("Build script cache cleared (`--no-cache` provided).")
+
     if args.clean:
         if sh.rm_path(args.out, allow_missing=True):
             log.success(f"Removed `{args.out}`.")
@@ -829,14 +831,12 @@ def main() -> None:
 
     sh.ensure_cmd_exists("cargo")
 
-    if SYSTEM == "windows":
+    if sh.build_os() == "windows":
         windows(out_dir, args)
-    elif SYSTEM == "darwin":  # macOS
+    elif sh.build_os() == "darwin":  # macOS
         mac_os(out_dir, args)
-    elif SYSTEM == "linux":
+    elif sh.build_os() == "linux":
         log.fatal("Linux support is currently unimplemented.")
-    else:
-        log.fatal(f"Unsupported system: `{SYSTEM}`")
 
     elapsed_time = time.time() - start_time
     log.success(

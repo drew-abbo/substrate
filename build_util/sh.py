@@ -2,6 +2,7 @@
 Contains shell and OS utilities.
 """
 
+from functools import cache
 import os
 import platform
 import re
@@ -17,20 +18,36 @@ from . import log
 from .log import Color
 
 
-def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
+@cache
+def build_os() -> Literal["windows", "darwin", "linux"]:
     """
-    Returns `"x86_64"`, `"arm64"`, or `None` depending on the architecture of
+    Returns `"windows"`, `"darwin"` (macOS), or `"linux"` depending on the OS of
     the current machine.
     """
 
-    return typing.cast(
-        Optional[Literal["x86_64", "arm64"]],
-        {
-            "x86_64": "x86_64",
-            "amd64": "x86_64",
-            "arm64": "arm64",
-        }.get(platform.machine().lower()),
-    )
+    system = platform.system().lower()
+    if system not in ("windows", "darwin", "linux"):
+        log.fatal(f"Unsupported OS `{platform.system()}`.")
+    return system
+
+
+@cache
+def build_arch() -> Literal["x86_64", "arm64"]:
+    """
+    Returns `"x86_64"` or `"arm64"` depending on the architecture of the current
+    machine. On Windows this function can't return `"arm64"` (unsupported).
+    """
+
+    arch = {
+        "x86_64": "x86_64",
+        "amd64": "x86_64",
+        "arm64": "arm64",
+    }.get(platform.machine().lower())
+    if arch is None:
+        log.fatal(f"Unsupported architecture `{platform.machine()}`.")
+    if arch == "arm64" and build_os() == "windows":
+        log.fatal(f"On Windows `arm64` is not a supported architecture.")
+    return arch
 
 
 def rm_path(

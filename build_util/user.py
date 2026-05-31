@@ -4,6 +4,7 @@ Contains utilities for getting user input.
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import time
 import urllib.request
 from typing import Any, Iterable, Optional
@@ -122,6 +123,7 @@ class DownloadCanceledException(DownloadRejectedException):
 def ask_to_download(
     url: str,
     dest_path: str,
+    download_reason: Optional[str] = None,
     *,
     require_download_completes: bool = True,
     non_fatal: bool = False,
@@ -138,20 +140,23 @@ def ask_to_download(
     # endregion
 ) -> bool:
     """
-    Download a (potentially large) file from the internet. Returns `True` if the
-    file was downloaded, `False` if the user rejected or canceled the download.
+    Download a (potentially large) file from the internet.
 
     If `require_download_completes` is `True`, this function will always return
-    `True`. If rejected, `DownloadRejectedException` is raised. If canceled,
-    `DownloadCanceledException` is raised (a sub-class of
-    `DownloadRejectedException`). If anything else goes wrong, the exception
-    that caused the download to fail will be raised. If `non_fatal` is `False`,
-    the function will exit instead of raising any exceptions.
+    `True`. Otherwise, `False` can be returned if the download is rejected or
+    canceled.
+
+    When `require_download_completes` is `True` and `non_fatal` is `False`, a
+    rejection will cause `DownloadRejectedException` to be raised. A
+    cancellation will cause `DownloadCanceledException` (a sub-class of
+    `DownloadRejectedException`) to be raised. If anything else goes wrong, the
+    exception that caused the download to fail will be raised. If `non_fatal` is
+    `False`, the function will exit instead of raising any exceptions.
 
     If outputting to a terminal, download progress will continually be redrawn
-    over the same line. Otherwise it will write to a new line repeatedly (around
-    every few seconds). If all `show_*` parameters are `False`, no progress will
-    be shown.
+    over the same line. Otherwise it will write to a new line repeatedly (every
+    few seconds). If all `show_*` parameters are `False`, no progress will be
+    shown.
 
     To enable download canceling, this function may catch a `KeyboardInterrupt`
     exception.
@@ -161,6 +166,7 @@ def ask_to_download(
 
     if not confirm(
         f"Allow download from `{log.Color.INFO}{url}{log.Color.RESET}`?"
+        + (" " + download_reason if download_reason else "")
     ):
         if require_download_completes:
             if non_fatal:
@@ -168,6 +174,10 @@ def ask_to_download(
             log.fatal("The download is required to continue.")
         return False
 
+    try:
+        os.makedirs(Path(dest_path).parent, exist_ok=True)
+    except Exception as e:
+        log.fatal(f"Failed to create directories to support `{dest_path}`.")
     ask_to_clear_up_path(dest_path)
 
     def size_with_unit(bytes: int, format_str: str = "{size:.1f}{unit}") -> str:

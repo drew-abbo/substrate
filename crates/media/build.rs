@@ -7,21 +7,22 @@ fn main() {
     match target_os.as_str() {
         "windows" => windows(),
         "macos" => {}
-        "linux" => unimplemented!(),
+        "linux" => {}
         _ => panic!("Unsupported target OS `{target_os}`."),
     }
 }
 
 fn windows() {
-    // This is needed because we need to copy our FFmpeg DLLs from `./ffmpeg`
-    // into the target directory so executable can link to them at runtime.
+    // This is needed because we need to copy our FFmpeg DLLs from the ffmpeg
+    // folder into the target directory so executable can link to them at
+    // runtime.
 
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
 
     let ffmpeg_dir = env::var("FFMPEG_DIR")
         .expect("`FFMPEG_DIR` environment variable unset. Please run `build_setup.py`.");
 
-    let ffmpeg_bin_dir = Path::new(&ffmpeg_dir).join("bin");
+    let ffmpeg_bin_dir = Path::new(&ffmpeg_dir).join("bin\\x64");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.ancestors().nth(3).unwrap();
