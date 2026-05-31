@@ -29,9 +29,9 @@ def build_path(absolute: bool = False) -> str:
 
     path = f"{sh.cache_dir(create=False)}{os.sep}ffmpeg"
     if not absolute:
-        return str(os.path.abspath(path))
+        return path
     try:
-        return
+        return str(os.path.abspath(path))
     except:
         log.fatal(f"Failed to get absolute path of `{path}`.")
 

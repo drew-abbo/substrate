@@ -71,10 +71,14 @@ Usage:
     return no_cache
 
 
-def create_cargo_config_for_env(env: dict[str, str]) -> None:
+def create_cargo_config_for_env(env: Optional[dict[str, str]] = None) -> None:
     """
     Create a `.cargo/config.toml` file.
     """
+
+    if env is None:
+        env = {}
+    env["PKG_CONFIG_LIBDIR"] = ffmpeg_build.pkgconfig(absolute=True)
 
     path = f".cargo{os.sep}config.toml"
 
@@ -231,7 +235,7 @@ def windows() -> None:
     # We need to set `LIBCLANG_PATH` so that `ffmpeg-next` can make bindings.
     env = {
         "LIBCLANG_PATH": libclang_path,
-        "FFMPEG_DIR": ffmpeg_build.build_path(),
+        "FFMPEG_DIR": ffmpeg_build.build_path(absolute=True),
     }
     if clang_include_dir is not None:
         # If we found Clang's include directory we'll explicitly pass it to
@@ -242,9 +246,6 @@ def windows() -> None:
 
     # See https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
     create_cargo_config_for_env(env)
-
-    sh.run_cmd("cargo", "clean")
-    log.info("Build directory cleaned.")
 
 
 def mac_os() -> None:
@@ -340,13 +341,8 @@ def mac_os() -> None:
         return True
 
     ensure_brew_is_installed()
-    if not is_installed_with_brew("ffmpeg@8", ask_to_install=True):
-        log.warning("Continuing without installing FFmpeg (8).")
     if not is_installed_with_brew("pkg-config", ask_to_install=True):
         log.warning("Continuing without installing `pkg-config`.")
-
-    sh.run_cmd("cargo", "clean")
-    log.info("Build directory cleaned.")
 
 
 def main() -> None:
@@ -366,6 +362,9 @@ def main() -> None:
         mac_os()
     elif sh.build_os() == "linux":
         log.fatal("unimplemented")
+
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
 
     log.success("Build setup complete.")
 
