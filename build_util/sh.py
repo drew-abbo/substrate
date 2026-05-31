@@ -369,6 +369,26 @@ def compile_template_file(
     return dest_str
 
 
+def cache_dir(create: bool = True) -> str:
+    """
+    The path to a cache directory. By default, created if it doesn't exist.
+    """
+
+    path = f".{os.sep}build_util.cache"
+
+    if create:
+        if not os.path.exists(path):
+            try:
+                os.mkdir(path)
+            except:
+                log.fatal("Failed to make cache directory.")
+            log.info(f"Created cache directory: {path}")
+        else:
+            ensure_path_exists(path, kind="dir")
+
+    return path
+
+
 def __format_cmd(
     cmd: Iterable[str],
     env_overrides: Optional[dict[str, str]],

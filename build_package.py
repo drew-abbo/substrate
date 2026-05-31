@@ -204,37 +204,13 @@ def app_version() -> str:
     return version
 
 
-def clear_up_path(path: str) -> None:
-    """
-    If there is an object at the provided path, the user is asked to move/remove
-    it (with an option to have it removed automatically). If this function
-    returns, the path has been cleared.
-    """
-
-    if not os.path.exists(path):
-        return
-
-    if not user.confirm(f"An object already exists at `{path}`. Remove it?"):
-        if os.path.exists(path):
-            log.fatal(
-                f"Can't continue while an object at `{path}` still exists."
-            )
-        else:
-            log.info(f"Object at `{path}` has moved. Continuing...")
-
-    if sh.rm_path(path, allow_missing=True):
-        log.warning(f"Removed `{path}`.")
-    else:
-        log.info(f"Nothing to remove anymore at `{path}`.")
-
-
 def create_out_dir(path: str) -> str:
     """
     Creates an empty directory at `path`. The directory's path is returned.
     """
 
     try:
-        clear_up_path(path)
+        user.ask_to_clear_up_path(path)
         os.makedirs(path)
         log.info(f"Output directory created: {path}")
         out_dir = path
@@ -256,26 +232,6 @@ def file_name(path: str) -> str:
     """
 
     return Path(path).name
-
-
-def cache_dir(create: bool = False) -> str:
-    """
-    The path to a cache directory.
-    """
-
-    path = f".{os.sep}build_util.cache"
-
-    if create:
-        if not os.path.exists(path):
-            try:
-                os.mkdir(path)
-            except:
-                log.fatal("Failed to make cache directory.")
-            log.info(f"Created cache directory: {path}")
-        else:
-            sh.ensure_path_exists(path, kind="dir")
-
-    return path
 
 
 class CargoTarget(TypedDict):
@@ -336,7 +292,7 @@ def stage_license_info(staging_dir: str) -> None:
     cargo_about_name = "cargo-about"
     if SYSTEM == "windows":
         cargo_about_name += ".exe"
-    cargo_about = f"{cache_dir()}/{cargo_about_name}"
+    cargo_about = f"{sh.cache_dir()}/{cargo_about_name}"
 
     try:
         sh.ensure_path_exists(cargo_about, kind="file", non_fatal=True)
@@ -349,11 +305,11 @@ def stage_license_info(staging_dir: str) -> None:
             *("--features", "cli"),
             "--locked",
             *("--root", temp_install_dir),
-            *("--color", "always" if log.Color.ENABLED else "never"),
+            *("--color", "always" if log.Color.enabled() else "never"),
         )
         sh.copy(
             f"{temp_install_dir}/bin/{cargo_about_name}",
-            cache_dir(create=True),
+            sh.cache_dir(create=True),
         )
         sh.rm_path(temp_install_dir)
     log.info(f"`cargo-about` found locally (`{cargo_about}`).")
@@ -474,7 +430,7 @@ def build_and_stage_artifact(
                 *("-p", crate_name),
                 *profile_args,
                 *features_args,
-                *("--color", "always" if log.Color.ENABLED else "never"),
+                *("--color", "always" if log.Color.enabled() else "never"),
             ),
             env_overrides=(
                 {"RUSTFLAGS": f"-L {link_time_dir}"} if link_time_dir else None
@@ -508,32 +464,6 @@ def build_and_stage_artifact(
     if return_dest:
         return dest
     return artifact_path
-
-
-def fmt_time(secs: float) -> str:
-    """
-    Formats a time to be human readable (e.g. `"1 minute and 15 seconds"`).
-    """
-
-    hours, sub_hour_secs = divmod(int(secs), 3600)
-    mins, secs = sub_hour_secs // 60, (sub_hour_secs % 60) + (secs - int(secs))
-
-    def pluralize(noun: str, n: Union[int, float]) -> str:
-        return f"{noun}{'s' if n < 0.95 or n >= 1.05 else ''}"
-
-    hours_str = f"{hours} {pluralize('hour', hours)}"
-    mins_str = f"{mins} {pluralize('min', mins)}"
-    secs_str = (
-        f"{int(secs)} " if round(secs, 1).is_integer() else f"{secs:.1f} "
-    ) + pluralize("second", secs)
-
-    if hours:
-        if mins:
-            return f"{hours_str}, {mins_str}, and {secs_str}"
-        return f"{hours_str} and {secs_str}"
-    if mins:
-        return f"{mins_str} and {secs_str}"
-    return secs_str
 
 
 def create_staging_dir(out_dir: str) -> str:
@@ -910,7 +840,7 @@ def main() -> None:
 
     elapsed_time = time.time() - start_time
     log.success(
-        f"Packaging completed in {fmt_time(elapsed_time)}. "
+        f"Packaging completed in {log.fmt_time(elapsed_time)}. "
         + f"See directory: {args.out}"
     )
 

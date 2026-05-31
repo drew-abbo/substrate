@@ -232,39 +232,10 @@ def windows() -> None:
         FFMPEG_DIR = ".\\ffmpeg"
 
         def download_ffmpeg_zip() -> None:
-            FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z"
-
-            MANUAL_INSTALL_MSG = (
-                "You can still manually install.\n"
-                + "Please rerun this script after downloading and extracting"
-                + f" FFmpeg to `{FFMPEG_DIR}`"
-                + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
+            user.ask_to_download(
+                "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z",
+                FFMPEG_ZIP_PATH,
             )
-
-            if not user.confirm(
-                "You don't have FFmpeg installed locally yet."
-                + " Do you want to download FFmpeg from the internet now?"
-            ):
-                log.fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
-
-            log.info(
-                "Installing FFmpeg. This may take a while... ",
-                end="",
-                flush=True,
-            )
-
-            try:
-                urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
-            except KeyboardInterrupt:
-                try:
-                    os.remove(FFMPEG_ZIP_PATH)
-                except:
-                    pass
-                log.warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
-                raise
-            except Exception:
-                log.fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
-            print("Done.")
             log.info("FFmpeg zip file downloaded.")
 
         def get_7z_cmd() -> Optional[str]:
@@ -337,18 +308,24 @@ def windows() -> None:
                 + " Attempt auto-fix?"
             ):
                 return
+            nested_dir = f"{FFMPEG_DIR}\\{ffmpeg_dir_list[0]}"
 
+            tmp_dir = sh.temp_dir()
             try:
-                tmp_location = tempfile.gettempdir()
-                shutil.move(FFMPEG_DIR, tmp_location)
-                shutil.move(f"{tmp_location}\\{ffmpeg_dir_list[0]}", FFMPEG_DIR)
-                os.rmdir(tmp_location)
-            except:
-                log.warning("FFmpeg directory structure fix failed.")
+                dir_items = list(os.listdir(nested_dir))
+                for item in dir_items:
+                    shutil.move(f"{nested_dir}\\{item}", f"{tmp_dir}\\{item}")
+                os.rmdir(nested_dir)
+                for item in dir_items:
+                    shutil.move(f"{tmp_dir}\\{item}", f"{FFMPEG_DIR}\\{item}")
+            except Exception as e:
+                log.warning("FFmpeg directory structure fix failed.", e)
                 if not user.confirm("Auto-fix failed. Continue anyway?"):
                     log.fatal("Not continuing.")
             else:
                 log.info("FFmpeg directory structure fix attempted.")
+            finally:
+                sh.rm_path(tmp_dir)
 
         if not os.path.exists(FFMPEG_DIR):
             if not os.path.exists(FFMPEG_ZIP_PATH):
