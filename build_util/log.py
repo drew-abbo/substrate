@@ -15,30 +15,30 @@ class Color(str, Enum):
     def enabled() -> bool:
         return _color_enabled
 
-    RESET = "\033[0m" if enabled() else ""
+    RESET = "\033[0m" if _color_enabled else ""
     NONE = ""
 
-    BLACK = "\033[30m" if enabled() else ""
-    RED = "\033[31m" if enabled() else ""
-    GREEN = "\033[32m" if enabled() else ""
-    YELLOW = "\033[33m" if enabled() else ""
-    BLUE = "\033[34m" if enabled() else ""
-    MAGENTA = "\033[35m" if enabled() else ""
-    CYAN = "\033[36m" if enabled() else ""
-    WHITE = "\033[37m" if enabled() else ""
-    DEFAULT_COLOR = "\033[39m" if enabled() else ""
+    BLACK = "\033[30m" if _color_enabled else ""
+    RED = "\033[31m" if _color_enabled else ""
+    GREEN = "\033[32m" if _color_enabled else ""
+    YELLOW = "\033[33m" if _color_enabled else ""
+    BLUE = "\033[34m" if _color_enabled else ""
+    MAGENTA = "\033[35m" if _color_enabled else ""
+    CYAN = "\033[36m" if _color_enabled else ""
+    WHITE = "\033[37m" if _color_enabled else ""
+    DEFAULT_COLOR = "\033[39m" if _color_enabled else ""
 
-    BOLD = "\033[1m" if enabled() else ""
-    FAINT = "\033[2m" if enabled() else ""
-    NORMAL_INTENSITY = "\033[22m" if enabled() else ""
+    BOLD = "\033[1m" if _color_enabled else ""
+    FAINT = "\033[2m" if _color_enabled else ""
+    NORMAL_INTENSITY = "\033[22m" if _color_enabled else ""
 
-    ERROR = RED if enabled() else ""
-    WARNING = YELLOW if enabled() else ""
-    INFO = CYAN if enabled() else ""
-    SUCCESS = GREEN if enabled() else ""
-    CONFIRM = MAGENTA if enabled() else ""
-    ACTION_NEEDED = MAGENTA + BOLD if enabled() else ""
-    COMMAND = BLUE if enabled() else ""
+    ERROR = RED if _color_enabled else ""
+    WARNING = YELLOW if _color_enabled else ""
+    INFO = CYAN if _color_enabled else ""
+    SUCCESS = GREEN if _color_enabled else ""
+    CONFIRM = MAGENTA if _color_enabled else ""
+    ACTION_NEEDED = MAGENTA + BOLD if _color_enabled else ""
+    COMMAND = BLUE if _color_enabled else ""
 
     def __str__(self):
         return str.__str__(self)

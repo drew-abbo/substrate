@@ -5,8 +5,10 @@ Contains utilities for getting user input.
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import ssl
 import time
 import urllib.request
+import urllib.error
 from typing import Any, Iterable, Optional
 
 from . import sh
@@ -332,6 +334,23 @@ def ask_to_download(
 
     except Exception as e:
         print(restore_cursor)
+
+        # Detect SSL certificate errors.
+        if isinstance(e, urllib.error.URLError) and isinstance(
+            e.reason, ssl.SSLCertVerificationError
+        ):
+            log.error(
+                "Unable to verify the identity of the download server.\n"
+                + "Your Python installation is missing or can't access the SSL "
+                + "certificates needed for a secure HTTPS connection.\n"
+                + "For a potential fix to your Python installation see: "
+                + "https://stackoverflow.com/a/70495761"
+            )
+            if not require_download_completes and confirm(
+                "Would you like to cancel the download?"
+            ):
+                log.warning("Download canceled.")
+                return False
 
         err_msg = f"Download failed: {e}"
         if non_fatal:

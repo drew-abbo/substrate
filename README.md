@@ -43,8 +43,6 @@ default).
 python3 ./build_package.py --help
 ```
 
-
-
 ### Build/Packaging Dependencies
 
 The table below lists the dependencies needed to run the
@@ -64,10 +62,13 @@ For building ([build_setup.py](./build_setup.py)):
 - Ensure you're using the `x86_64-pc-windows-msvc` toolchain for Rust (default).
 - Ensure you have the
   [Visual Studio Installer](https://visualstudio.microsoft.com/downloads/) (2022
-  or 2026, *Community* is fine).
-- The [7z command-line utility](https://www.7-zip.org/download.html) is
-  optional but recommended. Without it the script will always require human
-  input (even if you have the above dependencies and provide the `-y` flag).
+  or 2026, *Community* is fine). You'll want to verify the following individual
+  components:
+  - `C++ x64/x86 build tools (Latest)`
+  - `Windows 11 SDK`
+  - `C++ Clang Compiler for Windows`
+- The [7z command-line utility](https://www.7-zip.org/download.html) is optional
+  but recommended.
 
 For packaging ([build_package.py](./build_package.py)):
 
@@ -84,14 +85,13 @@ for macOS.
 
 For building ([build_setup.py](./build_setup.py)):
 
-- You'll need the `ffmpeg@8` and `pkg-config` packages installed globally
-  through the [Homebrew](https://brew.sh/) package manager. Note that installing
-  these can sometimes take an *exremely* long time.
-
-For packaging ([build_package.py](./build_package.py)):
-
-- You'll need Xcode's Command Line Tools. You can install these by running
+- Ensure you have Xcode's Command Line Tools. You can install these by running
   `xcode-select --install`.
+- Ensure you have `pkg-config` installed and accessible globally. If it isn't
+  detected the script will attempt to install it with the
+  [Homebrew](https://brew.sh/) package manager (which it can also install for
+  you). Note that these installs can take an *exremely* long time on older macOS
+  systems.
 
 </td></tr>
 

@@ -9,15 +9,18 @@ for user confirmation.
 
 The `--no-cache` flag makes the script delete any cached build script data
 before executing.
+
+The `--no-cargo-clean` flag makes the script skip running `cargo clean`
+(advanced users only).
 """.rstrip()
 
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 import typing
+from dataclasses import dataclass
 from typing import Any, Union, Optional
 
 import build_util.log as log
@@ -26,7 +29,13 @@ import build_util.user as user
 import build_util.ffmpeg_build as ffmpeg_build
 
 
-def parse_args() -> bool:
+@dataclass
+class Args:
+    no_cache: bool
+    no_cargo_clean: bool
+
+
+def parse_args() -> Args:
     """
     Parses command line arguments. Returns whether or not `--no-cache` was
     provided.
@@ -35,12 +44,13 @@ def parse_args() -> bool:
     ARG_0 = sys.argv[0]
     USAGE = f"""
 Usage:
-    {ARG_0} [-y|-n] [--no-cache]
+    {ARG_0} [-y|-n] [--no-cache] [--no-cargo-clean]
     {ARG_0} --help
 """.rstrip()
 
     auto_confirm = None
     no_cache = False
+    no_cargo_clean = False
 
     for arg in sys.argv[1:]:
         if arg in ("-h", "--help", "help", "/h", "/?", "h", "?"):
@@ -65,10 +75,15 @@ Usage:
                 log.fatal(f"Repeat argument `{arg}`." + USAGE)
             no_cache = True
 
+        elif arg == "--no-cargo-clean":
+            if no_cargo_clean:
+                log.fatal(f"Repeat argument `{arg}`." + USAGE)
+            no_cargo_clean = True
+
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
 
-    return no_cache
+    return Args(no_cache, no_cargo_clean)
 
 
 def create_cargo_config_for_env(env: Optional[dict[str, str]] = None) -> None:
@@ -76,11 +91,13 @@ def create_cargo_config_for_env(env: Optional[dict[str, str]] = None) -> None:
     Create a `.cargo/config.toml` file that sets the environment variables from
     `env`.
 
+    `FFMPEG_DIR` always gets set to point to FFmpeg's build folder and
     `PKG_CONFIG_LIBDIR` always gets set to point to FFmpeg's `pkgconfig` folder.
     """
 
     if env is None:
         env = {}
+    env["FFMPEG_DIR"] = ffmpeg_build.path(absolute=True)
     env["PKG_CONFIG_LIBDIR"] = ffmpeg_build.pkgconfig(absolute=True)
 
     path = f".cargo{os.sep}config.toml"
@@ -238,10 +255,7 @@ def windows() -> None:
     # See: https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
 
     # We need to set `LIBCLANG_PATH` so that `ffmpeg-next` can make bindings.
-    env = {
-        "LIBCLANG_PATH": libclang_path,
-        "FFMPEG_DIR": ffmpeg_build.build_path(absolute=True),
-    }
+    env = {"LIBCLANG_PATH": libclang_path}
     if clang_include_dir is not None:
         # If we found Clang's include directory we'll explicitly pass it to
         # `bindgen` (the library `ffmpeg-next` uses to generate rust bindings)
@@ -391,11 +405,13 @@ def mac_os() -> None:
 
 
 def main() -> None:
-    no_cache = parse_args()
+    args = parse_args()
 
     sh.require_script_in_working_dir()
 
-    if no_cache and sh.rm_path(sh.cache_dir(create=False), allow_missing=True):
+    if args.no_cache and sh.rm_path(
+        sh.cache_dir(create=False), allow_missing=True
+    ):
         log.info("Build script cache cleared (`--no-cache` provided).")
 
     ffmpeg_build.get_ffmpeg()
@@ -408,8 +424,14 @@ def main() -> None:
     elif sh.build_os() == "linux":
         log.fatal("unimplemented")
 
-    sh.run_cmd("cargo", "clean")
-    log.info("Build directory cleaned.")
+    if args.no_cache:
+        log.warning(
+            "The build directory has not been cleaned "
+            + "(`--no-cargo-clean` provided)."
+        )
+    else:
+        sh.run_cmd("cargo", "clean")
+        log.info("Build directory cleaned.")
 
     log.success("Build setup complete.")
 

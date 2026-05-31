@@ -22,18 +22,18 @@ The URL of the Git tag of the version of FFmpeg being used.
 """
 
 
-def build_path(absolute: bool = False) -> str:
+def path(absolute: bool = False) -> str:
     """
     The path to the FFmpeg build directory.
     """
 
-    path = f"{sh.cache_dir(create=False)}{os.sep}ffmpeg"
+    dir_path = f"{sh.cache_dir(create=False)}{os.sep}ffmpeg"
     if not absolute:
-        return path
+        return dir_path
     try:
-        return str(os.path.abspath(path))
+        return str(os.path.abspath(dir_path))
     except:
-        log.fatal(f"Failed to get absolute path of `{path}`.")
+        log.fatal(f"Failed to get absolute path of `{dir_path}`.")
 
 
 def license_file(absolute: bool = False) -> str:
@@ -41,7 +41,7 @@ def license_file(absolute: bool = False) -> str:
     The path to the FFmpeg in the FFmpeg build directory.
     """
 
-    return f"{build_path(absolute=absolute)}{os.sep}COPYING.LGPLv2.1"
+    return f"{path(absolute=absolute)}{os.sep}COPYING.LGPLv2.1"
 
 
 def ffmpeg_exe(
@@ -56,12 +56,12 @@ def ffmpeg_exe(
     """
 
     if sh.build_os() == "windows":
-        return f"{build_path(absolute=absolute)}\\bin\\x64\\ffmpeg.exe"
+        return f"{path(absolute=absolute)}\\bin\\x64\\ffmpeg.exe"
     elif sh.build_os() == "darwin":  # macOS
-        return f"{build_path(absolute=absolute)}/bin/ffmpeg"
+        return f"{path(absolute=absolute)}/bin/ffmpeg"
     elif sh.build_os() == "linux":
         arch = "amd64" if arch == "x86_64" else arch
-        return f"{build_path(absolute=absolute)}/bin/{arch}/ffmpeg"
+        return f"{path(absolute=absolute)}/bin/{arch}/ffmpeg"
 
 
 def dylib_folder(
@@ -77,12 +77,12 @@ def dylib_folder(
     """
 
     if sh.build_os() == "windows":
-        return f"{build_path(absolute=absolute)}\\lib"
+        return f"{path(absolute=absolute)}\\lib"
     elif sh.build_os() == "darwin":  # macOS
-        return f"{build_path(absolute=absolute)}/lib"
+        return f"{path(absolute=absolute)}/lib"
     elif sh.build_os() == "linux":
         arch = "amd64" if arch == "x86_64" else arch
-        return f"{build_path(absolute=absolute)}/lib/{arch}"
+        return f"{path(absolute=absolute)}/lib/{arch}"
 
 
 def pkgconfig(
@@ -105,10 +105,10 @@ def ensure_exists_locally(non_fatal: bool = False) -> None:
     """
 
     for folder in (
-        build_path(),
-        f"{build_path()}/bin",
-        f"{build_path()}/include",
-        f"{build_path()}/lib",
+        path(),
+        f"{path()}/bin",
+        f"{path()}/include",
+        f"{path()}/lib",
         dylib_folder(arch="x86_64"),
         dylib_folder(arch="arm64"),
         pkgconfig(arch="x86_64"),
@@ -292,9 +292,7 @@ def get_ffmpeg():
             log.fatal("Unexpected data found in downloaded build archive.")
 
         sh.cache_dir(create=True)  # Make sure cache directory exists
-        shutil.move(
-            f"{extracted_archive_path}/{archive_items[0]}", build_path()
-        )
+        shutil.move(f"{extracted_archive_path}/{archive_items[0]}", path())
     except:
         log.fatal("Failed to cache FFmpeg build from downloaded archive.")
     log.info("FFmpeg build cached.")
@@ -304,7 +302,7 @@ def get_ffmpeg():
     # On Windows we need the contents of `x64` in the root of the `lib` dir so
     # we'll create a bunch of simlinks.
     if sh.build_os() == "windows":
-        lib_dir = f"{build_path()}\\lib"
+        lib_dir = f"{path()}\\lib"
         try:
             for item in os.listdir(f"{lib_dir}\\x64"):
                 os.symlink(
