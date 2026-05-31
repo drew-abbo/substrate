@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import typing
 from dataclasses import dataclass
 from typing import Any, Union, Optional
@@ -405,6 +406,8 @@ def mac_os() -> None:
 
 
 def main() -> None:
+    start_time = time.time()
+
     args = parse_args()
 
     sh.require_script_in_working_dir()
@@ -433,7 +436,8 @@ def main() -> None:
         sh.run_cmd("cargo", "clean")
         log.info("Build directory cleaned.")
 
-    log.success("Build setup complete.")
+    elapsed_time = time.time() - start_time
+    log.success(f"Build setup completed in {log.fmt_time(elapsed_time)}.")
 
 
 if __name__ == "__main__":

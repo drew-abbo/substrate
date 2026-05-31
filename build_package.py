@@ -296,6 +296,8 @@ def stage_license_info(staging_dir: str) -> None:
     Determines what's needed for license compliance and stages in `staging_dir`.
     """
 
+    log.warning("License info staging implementation is incomplete.")
+
     cargo_about_name = "cargo-about"
     if sh.build_os() == "windows":
         cargo_about_name += ".exe"
@@ -580,13 +582,16 @@ def windows(out_dir: str, args: Args) -> None:
     sh.rm_path(temp_appcore_lib_dir)
 
     # Stage FFmpeg DLLs.
-    dlls_copied = sh.copy_files_dir_to_dir(
-        ".\\ffmpeg\\bin",
-        staging_dir,
-        file_ext_filter=".dll",
-    )
-    log.info(f"Copied {len(dlls_copied)} FFmpeg DLLs into staging directory.")
+    dlls = ffmpeg_build.dylibs()
+    for dll_path, dll_name in dlls:
+        sh.copy(dll_path, f"{staging_dir}\\{dll_name}")
+    log_msg = f"Copied {len(dlls)} FFmpeg DLLs into staging directory."
+    if len(dlls) != 0:
+        log.info(log_msg)
+    else:
+        log.warning(log_msg)
 
+    # This is not an "extra", we need it for license compliance.
     stage_license_info(staging_dir)
 
     log.info("Staging complete.")
@@ -790,6 +795,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     log.info("Bundling icon.")
     sh.copy("./logo/s-bg.icns", resources_staging_dir)
 
+    # This is not an "extra", we need it for license compliance.
     stage_license_info(staging_dir)
 
     if args.no_extras:
@@ -829,6 +835,7 @@ def main() -> None:
 
     out_dir = create_out_dir(args.out)
 
+    ffmpeg_build.get_ffmpeg()
     sh.ensure_cmd_exists("cargo")
 
     if sh.build_os() == "windows":

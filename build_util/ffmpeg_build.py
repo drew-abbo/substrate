@@ -77,7 +77,7 @@ def dylib_folder(
     """
 
     if sh.build_os() == "windows":
-        return f"{path(absolute=absolute)}\\lib"
+        return f"{path(absolute=absolute)}\\bin\\x64"
     elif sh.build_os() == "darwin":  # macOS
         return f"{path(absolute=absolute)}/lib"
     elif sh.build_os() == "linux":
@@ -96,7 +96,13 @@ def pkgconfig(
     is supported for Windows.
     """
 
-    return f"{dylib_folder(absolute=absolute, arch=arch)}{os.sep}pkgconfig"
+    if sh.build_os() == "windows":
+        return f"{path(absolute=absolute)}\\lib\\x64\\pkgconfig"
+    elif sh.build_os() == "darwin":  # macOS
+        return f"{path(absolute=absolute)}/lib/pkgconfig"
+    elif sh.build_os() == "linux":
+        arch = "amd64" if arch == "x86_64" else arch
+        return f"{path(absolute=absolute)}/lib/{arch}/pkgconfig"
 
 
 def ensure_exists_locally(non_fatal: bool = False) -> None:
@@ -124,13 +130,16 @@ def ensure_exists_locally(non_fatal: bool = False) -> None:
 
 
 def dylibs(
-    absolute: bool = False, arch: Literal["x86_64", "arm64"] = sh.build_arch()
-) -> list[str]:
+    arch: Literal["x86_64", "arm64"] = sh.build_arch(),
+) -> list[(str, str)]:
     """
-    The path to all `.dll`/`.dylib`/`.so` files in the the FFmpeg build
-    directory. Duplicates (that simlink to each other) will not be returned (the
+    The paths and names of all important `.dll`/`.dylib`/`.so` files in the the
+    FFmpeg build directory.
+
+    Duplicates (that simlink to each other) will not be returned (the
     lexicographically last file is used). The resulting paths may be to
-    symlinks. `libffmpeg*.dylib` files are filtered out.
+    symlinks. All-inclusive FFmpeg files (e.g. `libffmpeg*.dylib`) are filtered
+    out.
 
     On Linux this will point to the `x86_64` or `arm64` variant depending on the
     host platform by default. Configure this by providing `arch`. Only `x86_64`
@@ -145,15 +154,17 @@ def dylibs(
         ext = ".so"
 
     try:
+        dylib_dir = dylib_folder(arch=arch)
         dylibs = {
-            str(os.path.realpath()): item
-            for item in os.listdir(dylib_folder(absolute=absolute, arch=arch))
-            if item.endswith(ext) and not item.startswith("libffmpeg")
-        }.values()
+            str(os.path.realpath(f"{dylib_dir}/{item}")): item
+            for item in os.listdir(dylib_dir)
+            if item.endswith(ext)
+            and not item.startswith(("libffmpeg", "ffmpeg"))
+        }
     except:
         log.fatal("Failed to enumerate FFmpeg dynamic library files.")
 
-    return list(dylibs)
+    return list(dylibs.items())
 
 
 def download_url() -> str:
@@ -185,6 +196,7 @@ def get_ffmpeg():
     except sh.DoesntExistException:
         log.info("FFmpeg not found locally.")
     else:
+        log.info(f"Found FFmpeg v{FFMPEG_VERSION} installed locally.")
         return
 
     temp_dir = sh.temp_dir()
@@ -314,3 +326,4 @@ def get_ffmpeg():
             log.fatal("Failed to clean FFmpeg archive structure.")
 
     ensure_exists_locally()
+    log.info(f"FFmpeg v{FFMPEG_VERSION} installed locally.")
