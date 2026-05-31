@@ -585,11 +585,9 @@ def windows(out_dir: str, args: Args) -> None:
     dlls = ffmpeg_build.dylibs()
     for dll_path, dll_name in dlls:
         sh.copy(dll_path, f"{staging_dir}\\{dll_name}")
-    log_msg = f"Copied {len(dlls)} FFmpeg DLLs into staging directory."
-    if len(dlls) != 0:
-        log.info(log_msg)
-    else:
-        log.warning(log_msg)
+    log.info(f"Copied {len(dlls)} FFmpeg DLLs into staging directory.")
+    if len(dlls) == 0:
+        log.error(f"No FFmpeg DLLs found.")
 
     # This is not an "extra", we need it for license compliance.
     stage_license_info(staging_dir)
@@ -703,19 +701,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     )
     appcore_dylib_name = file_name(appcore_dylib)
 
-    def find_ffmpeg_dylib_dir() -> str:
-        log.info("Locating FFmpeg dylib files...")
-        sh.ensure_cmd_exists("brew")
-        ffmpeg_dir = sh.run_cmd(
-            *("brew", "--prefix", "ffmpeg@8"),
-            show_output=False,
-        )
-        ffmpeg_dylib_dir = f"{ffmpeg_dir}/lib"
-        sh.ensure_path_exists(ffmpeg_dylib_dir, kind="dir")
-        log.info(f"Found FFmpeg dylib files in `{ffmpeg_dylib_dir}`.")
-        return ffmpeg_dylib_dir
-
-    def get_dylibs_names(dylib_dir: str, file: str) -> list[str]:
+    def get_dylibs_names(file: str) -> list[str]:
         otool_lines = [
             line.lstrip()
             for line in sh.run_cmd(
@@ -724,30 +710,29 @@ def mac_os(out_dir: str, args: Args) -> None:
             ).splitlines()
         ]
         return [
-            line[len(dylib_dir) + 1 :].split(" ")[0]
+            line[len("@rpath/") :].split(" ")[0]
             for line in otool_lines
-            if line.startswith(dylib_dir)
+            if line.startswith("@rpath/")
         ]
-
-    def stage_ffmpeg_dylib(dylib_path: str) -> None:
-        src = os.path.realpath(dylib_path)
-        dest = f"{frameworks_staging_dir}/{file_name(dylib_path)}"
-        sh.copy(src, dest)
 
     appcore_remap_args = ["-id", f"@rpath/{appcore_dylib_name}"]
 
     # Update app-core dylib to point to ffmpeg dylibs in the same local
     # directory instead of pointing at this computer's hard-coded global dylibs.
-    ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
-    ffmpeg_dylibs = get_dylibs_names(ffmpeg_dylib_dir, appcore_dylib)
+    ffmpeg_dylib_dir = ffmpeg_build.dylib_folder()
+    ffmpeg_dylibs = get_dylibs_names(appcore_dylib)
     if len(ffmpeg_dylibs) == 0:
-        log.warning(f"No FFmpeg dylibs required for app-core.")
+        log.error(f"No FFmpeg dylibs required for app-core.")
     else:
         for dylib in ffmpeg_dylibs:
             dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
-            stage_ffmpeg_dylib(dylib_src_path)
+
+            src = os.path.realpath(dylib_src_path)
+            dest = f"{frameworks_staging_dir}/{dylib}"
+            sh.copy(src, dest)
+
             appcore_remap_args.extend(
-                ("-change", dylib_src_path, f"@loader_path/{dylib}")
+                ("-change", f"@rpath/{dylib}", f"@loader_path/{dylib}")
             )
         log.info(f"Staged {len(ffmpeg_dylibs)} FFmpeg dylibs.")
 
@@ -757,8 +742,10 @@ def mac_os(out_dir: str, args: Args) -> None:
         show_output=False,
     )
 
-    # Create a temp dir with the app-core dylib file to add to the linker path.
+    # Create a temp dir with the app-core library file for the linker.
     temp_app_lib_dir = sh.temp_dir()
+    sh.copy(appcore_dylib, temp_app_lib_dir)
+
     for bin_name in ("editor", "launcher"):
         bin_path = build_and_stage_artifact(
             bin_name,
