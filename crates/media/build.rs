@@ -6,8 +6,18 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
         "windows" => copy_dylibs_to_exe_dir("bin\\x64", "dll"),
+
         "macos" => copy_dylibs_to_exe_dir("lib", "dylib"),
-        "linux" => {}
+
+        "linux" => {
+            let arch = match env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_ref() {
+                "x86_64" => "amd64",
+                "aarch64" => "arm64",
+                arch => panic!("Unsupported architecture `{arch}`."),
+            };
+            copy_dylibs_to_exe_dir(format!("lib/{arch}"), "so");
+        }
+
         _ => panic!("Unsupported target OS `{target_os}`."),
     }
 }

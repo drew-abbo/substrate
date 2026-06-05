@@ -14,6 +14,7 @@ The `--no-cargo-clean` flag makes the script skip running `cargo clean`
 (advanced users only).
 """.rstrip()
 
+from functools import cache
 import json
 import os
 import re
@@ -22,7 +23,7 @@ import tempfile
 import time
 import typing
 from dataclasses import dataclass
-from typing import Any, Union, Optional
+from typing import Any, Literal, Union, Optional
 
 import build_util.log as log
 import build_util.sh as sh
@@ -405,6 +406,73 @@ def mac_os() -> None:
     create_cargo_config_for_env()
 
 
+def linux() -> None:
+    """
+    Handles build setup for Linux builds.
+    """
+
+    def should_install(cmd: str) -> bool:
+        try:
+            sh.ensure_cmd_exists(cmd, non_fatal=True)
+        except sh.DoesntExistException:
+            install_cmd = user.confirm(
+                f"Couldn't find `{cmd}`. Would you like to try installing it?"
+            )
+            if not install_cmd:
+                log.warning(
+                    f"Continuing without finding `{cmd}`. The build may fail."
+                )
+            return install_cmd
+        log.info(f"Found `{cmd}`.")
+        return False  # found
+
+    def package_manager_install(*, clang: bool, pkgconfig: bool) -> None:
+        if not clang and not pkgconfig:
+            return
+
+        log.info("Looking for package manager...")
+        package_manager = None
+        for cmd in ["apt", "dnf", "yum", "pacman", "apk", "zypper"]:
+            try:
+                sh.ensure_cmd_exists(package_manager, non_fatal=True)
+            except sh.DoesntExistException:
+                continue
+            package_manager = cmd
+        if package_manager is None:
+            log.fatal(
+                "No known package manager to install packages with. "
+                + "Please install manually."
+            )
+        log.info(f"Found package manager `{package_manager}`.")
+
+        if package_manager == ("apt", "dnf", "yum"):
+            install_cmd = [package_manager, "install", "-y"]
+            clang_pkg, pkgconfig_pkg = "clang", "pkg-config"
+        elif package_manager == "pacman":
+            install_cmd = ["pacman", "-S", "--noconfirm"]
+            clang_pkg, pkgconfig_pkg = "clang", "pkgconf"
+        elif package_manager == "apk":
+            install_cmd = ["apk", "add"]
+            clang_pkg, pkgconfig_pkg = "clang", "pkgconf"
+        elif package_manager == "zypper":
+            install_cmd = ["zypper", "--non-interactive", "install"]
+            clang_pkg, pkgconfig_pkg = "clang", "pkg-config"
+
+        if clang:
+            install_cmd.append(clang_pkg)
+        if pkgconfig:
+            install_cmd.append(pkgconfig_pkg)
+
+        sh.run_cmd("sudo", *install_cmd)
+
+    package_manager_install(
+        clang=should_install("clang"),
+        pkgconfig=should_install("pkg-config"),
+    )
+
+    create_cargo_config_for_env()
+
+
 def main() -> None:
     start_time = time.time()
 
@@ -425,7 +493,7 @@ def main() -> None:
     elif sh.build_os() == "darwin":  # macOS
         mac_os()
     elif sh.build_os() == "linux":
-        log.fatal("unimplemented")
+        linux()
 
     if args.no_cargo_clean:
         log.warning(
