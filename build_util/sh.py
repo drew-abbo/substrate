@@ -437,6 +437,9 @@ def __print_running_cmd(
     Highlight the file name in the first argument.
     """
 
+    cmd = list(cmd)
+    cmd, is_sudo = (cmd, False) if cmd[0] != "sudo" else (cmd[1:], True)
+
     last_slash_idx = max(cmd[0].rfind("/"), cmd[0].rfind("\\"))
     highlight_start_idx = 0 if last_slash_idx == -1 else last_slash_idx + 1
 
@@ -445,6 +448,9 @@ def __print_running_cmd(
         + f"{Color.COMMAND}{cmd[0][highlight_start_idx:]}{Color.RESET}",
         *cmd[1:],
     ]
+
+    if is_sudo:
+        cmd.insert(0, f"{Color.WARNING}sudo{Color.RESET}")
 
     print(
         f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: "

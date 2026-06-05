@@ -23,7 +23,7 @@ import tempfile
 import time
 import typing
 from dataclasses import dataclass
-from typing import Any, Literal, Union, Optional
+from typing import Any, Iterable, Literal, Union, Optional
 
 import build_util.log as log
 import build_util.sh as sh
@@ -88,19 +88,26 @@ Usage:
     return Args(no_cache, no_cargo_clean)
 
 
-def create_cargo_config_for_env(env: Optional[dict[str, str]] = None) -> None:
+def create_cargo_config_for_env(
+    env: Optional[dict[str, str]] = None,
+    extra_pkgconfig_dirs: Optional[list[str]] = None,
+) -> None:
     """
     Create a `.cargo/config.toml` file that sets the environment variables from
     `env`.
 
-    `FFMPEG_DIR` always gets set to point to FFmpeg's build folder and
+    `FFMPEG_DIR` always gets set to point to FFmpeg's build folder.
+
     `PKG_CONFIG_LIBDIR` always gets set to point to FFmpeg's `pkgconfig` folder.
+    You can add additional paths to `PKG_CONFIG_LIBDIR` by providing
+    `extra_pkgconfig_dirs`.
     """
 
-    if env is None:
-        env = {}
+    env = env or {}
     env["FFMPEG_DIR"] = ffmpeg_build.path(absolute=True)
-    env["PKG_CONFIG_LIBDIR"] = ffmpeg_build.pkgconfig(absolute=True)
+    env["PKG_CONFIG_LIBDIR"] = ":".join(
+        [ffmpeg_build.pkgconfig(absolute=True)] + (extra_pkgconfig_dirs or [])
+    )
 
     path = f".cargo{os.sep}config.toml"
 
@@ -411,7 +418,22 @@ def linux() -> None:
     Handles build setup for Linux builds.
     """
 
-    def should_install(cmd: str) -> bool:
+    @cache
+    def get_package_manager() -> str:
+        log.info("Looking for package manager...")
+        for pkg_manager in ["apt-get", "dnf", "yum", "pacman", "apk", "zypper"]:
+            try:
+                sh.ensure_cmd_exists(pkg_manager, non_fatal=True)
+            except sh.DoesntExistException:
+                continue
+            log.info(f"Found package manager `{pkg_manager}`.")
+            return pkg_manager
+        log.fatal(
+            "No known package manager to install packages with. "
+            + "Please install manually."
+        )
+
+    def should_install_cmd(cmd: str, required: bool = False) -> bool:
         try:
             sh.ensure_cmd_exists(cmd, non_fatal=True)
         except sh.DoesntExistException:
@@ -419,6 +441,8 @@ def linux() -> None:
                 f"Couldn't find `{cmd}`. Would you like to try installing it?"
             )
             if not install_cmd:
+                if required:
+                    log.fatal(f"`{cmd}` is required to continue.")
                 log.warning(
                     f"Continuing without finding `{cmd}`. The build may fail."
                 )
@@ -426,52 +450,85 @@ def linux() -> None:
         log.info(f"Found `{cmd}`.")
         return False  # found
 
-    def package_manager_install(*, clang: bool, pkgconfig: bool) -> None:
-        if not clang and not pkgconfig:
-            return
+    def package_manager_install(pkg: str) -> None:
+        PKG_NAMES = {
+            "clang": {
+                "apt-get": "clang",
+                "dnf": "clang",
+                "yum": "clang",
+                "pacman": "clang",
+                "apk": "clang",
+                "zypper": "clang",
+            },
+            "pkg-config": {
+                "apt-get": "pkg-config",
+                "dnf": "pkgconf-pkg-config",
+                "yum": "pkgconf-pkg-config",
+                "pacman": "pkgconf",
+                "apk": "pkgconf",
+                "zypper": "pkg-config",
+            },
+            "alsa-dev": {
+                "apt-get": "libasound2-dev",
+                "dnf": "alsa-lib-devel",
+                "yum": "alsa-lib-devel",
+                "pacman": "alsa-lib",
+                "apk": "alsa-lib-dev",
+                "zypper": "alsa-devel",
+            },
+        }
 
-        log.info("Looking for package manager...")
-        package_manager = None
-        for cmd in ["apt", "dnf", "yum", "pacman", "apk", "zypper"]:
-            try:
-                sh.ensure_cmd_exists(cmd, non_fatal=True)
-            except sh.DoesntExistException:
-                continue
-            package_manager = cmd
-            break
-        if package_manager is None:
-            log.fatal(
-                "No known package manager to install packages with. "
-                + "Please install manually."
-            )
-        log.info(f"Found package manager `{package_manager}`.")
+        package_manager = get_package_manager()
+        pkg_name = PKG_NAMES[pkg][package_manager]
 
-        if package_manager == ("apt", "dnf", "yum"):
+        env = {}
+        if package_manager == "apt-get":
+            install_cmd = ["apt-get", "install", "-y"]
+            env["DEBIAN_FRONTEND"] = "noninteractive"
+        elif package_manager in ("dnf", "yum"):
             install_cmd = [package_manager, "install", "-y"]
-            clang_pkg, pkgconfig_pkg = "clang", "pkg-config"
         elif package_manager == "pacman":
             install_cmd = ["pacman", "-S", "--noconfirm"]
-            clang_pkg, pkgconfig_pkg = "clang", "pkgconf"
         elif package_manager == "apk":
             install_cmd = ["apk", "add"]
-            clang_pkg, pkgconfig_pkg = "clang", "pkgconf"
         elif package_manager == "zypper":
             install_cmd = ["zypper", "--non-interactive", "install"]
-            clang_pkg, pkgconfig_pkg = "clang", "pkg-config"
 
-        if clang:
-            install_cmd.append(clang_pkg)
-        if pkgconfig:
-            install_cmd.append(pkgconfig_pkg)
+        # `sudo` if not running as root.
+        if os.geteuid() != 0:
+            install_cmd.insert(0, "sudo")
 
-        sh.run_cmd("sudo", *install_cmd)
+        sh.run_cmd(*install_cmd, pkg_name, env_overrides=env)
 
-    package_manager_install(
-        clang=should_install("clang"),
-        pkgconfig=should_install("pkg-config"),
+    if should_install_cmd("clang"):
+        package_manager_install("clang")
+
+    if should_install_cmd("pkg-config", required=True):
+        package_manager_install("pkg-config")
+    sh.ensure_cmd_exists("pkg-config")
+
+    # We need ALSA dev headers for `midir` and we need to tell `pkg-config`
+    # where they are.
+    try:
+        sh.run_cmd(
+            *("pkg-config", "--exists", "alsa"),
+            non_fatal=True,
+            show_output=False,
+        )
+    except:
+        if user.confirm(
+            f"Couldn't find ALSA development headers. "
+            + "Would you like to try installing them?"
+        ):
+            package_manager_install("alsa-dev")
+        else:
+            log.fatal(f"ALSA development headers are required to continue.")
+    alsa_dev_headers = sh.run_cmd(
+        *("pkg-config", "--variable=pcfiledir", "alsa"),
+        show_output=False,
     )
 
-    create_cargo_config_for_env()
+    create_cargo_config_for_env(extra_pkgconfig_dirs=[alsa_dev_headers])
 
 
 def main() -> None:
