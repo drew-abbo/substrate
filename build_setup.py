@@ -438,6 +438,7 @@ def linux() -> None:
             except sh.DoesntExistException:
                 continue
             package_manager = cmd
+            break
         if package_manager is None:
             log.fatal(
                 "No known package manager to install packages with. "
