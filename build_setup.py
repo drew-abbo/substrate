@@ -434,7 +434,7 @@ def linux() -> None:
         package_manager = None
         for cmd in ["apt", "dnf", "yum", "pacman", "apk", "zypper"]:
             try:
-                sh.ensure_cmd_exists(package_manager, non_fatal=True)
+                sh.ensure_cmd_exists(cmd, non_fatal=True)
             except sh.DoesntExistException:
                 continue
             package_manager = cmd
