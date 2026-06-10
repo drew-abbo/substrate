@@ -360,15 +360,22 @@ impl NodeLibrary {
             return Ok(nodes_path);
         }
 
-        // If we can't find the nodes folder where we expected it we'll check
-        // the working directory.
+        // Walk up from cwd looking for a nodes/ folder (handles dev environments
+        // where the exe lives in target/debug/ or a nested subdirectory).
         let cwd = env::current_dir().map_err(into_library_io_err)?;
-        if let Some(nodes_path) = find_inner_nodes_dir(cwd) {
-            util::debug_log_warning!("Using nodes found in working directory.");
-            return Ok(nodes_path);
+        let mut search = cwd.as_path();
+        loop {
+            if let Some(nodes_path) = find_inner_nodes_dir(search.to_path_buf()) {
+                util::debug_log_warning!("Using nodes found by walking up from working directory.");
+                return Ok(nodes_path);
+            }
+            match search.parent() {
+                Some(parent) => search = parent,
+                None => break,
+            }
         }
 
-        util::debug_log_error!("Nodes not found.");
+        util::debug_log_warning!("Nodes not found.");
         Err(LibraryError::NodesFolderNotFound(PathBuf::from("nodes")))
     }
 }

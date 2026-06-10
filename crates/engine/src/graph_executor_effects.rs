@@ -148,10 +148,15 @@ impl GraphExecutor {
             .as_ref()
             .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        let final_output_view = if let Some(view) = &scalar_output_view {
-            std::sync::Arc::new(view.clone())
+        let (final_output_view, mut actual_output_texture) = if let Some(view) = &scalar_output_view
+        {
+            (
+                std::sync::Arc::new(view.clone()),
+                None::<std::sync::Arc<wgpu::Texture>>,
+            )
         } else {
-            self.get_or_create_render_target(device, node_id, output_size)
+            let rt = self.get_or_create_render_target(device, node_id, output_size);
+            (rt.view, Some(rt.texture))
         };
         let mut actual_output_view = final_output_view.clone();
 
@@ -250,19 +255,21 @@ impl GraphExecutor {
                             .insert(cache_key.clone(), compute_pipeline);
                     }
 
-                    let stage_output_view = if is_final_stage && has_scalar_output {
-                        // Scalar-output nodes read back from this texture, so final output must target it.
-                        actual_output_view.clone()
-                    } else {
-                        // Frame-output compute stages need STORAGE_BINDING on their output texture.
-                        self.get_or_create_compute_stage_target(
-                            device,
-                            node_id,
-                            stage_index,
-                            output_size,
-                            storage_format,
-                        )
-                    };
+                    let (stage_output_view, stage_output_texture) =
+                        if is_final_stage && has_scalar_output {
+                            // Scalar-output nodes read back from this texture, so final output must target it.
+                            (actual_output_view.clone(), None::<std::sync::Arc<wgpu::Texture>>)
+                        } else {
+                            // Frame-output compute stages need STORAGE_BINDING on their output texture.
+                            let rt = self.get_or_create_compute_stage_target(
+                                device,
+                                node_id,
+                                stage_index,
+                                output_size,
+                                storage_format,
+                            );
+                            (rt.view, Some(rt.texture))
+                        };
 
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
 
@@ -330,7 +337,7 @@ impl GraphExecutor {
                         // into a render target with `self.target_format`.
                         if storage_format != target_format {
                             // Ensure we have a render target view with the correct format
-                            let final_render_view =
+                            let final_render_rt =
                                 self.get_or_create_render_target(device, node_id, output_size);
 
                             // Load blit shader from external file under the crate's shaders/ folder.
@@ -388,7 +395,7 @@ impl GraphExecutor {
                                     &mut encoder,
                                     stage_output_view.as_ref(),
                                     &[],
-                                    final_render_view.as_ref(),
+                                    final_render_rt.view.as_ref(),
                                     &std::collections::HashMap::<
                                         String,
                                         crate::graph_executor::NodeValue,
@@ -396,9 +403,11 @@ impl GraphExecutor {
                                 )
                                 .map_err(ExecutionError::RenderError)?;
 
-                            actual_output_view = final_render_view;
+                            actual_output_view = final_render_rt.view;
+                            actual_output_texture = Some(final_render_rt.texture);
                         } else {
                             actual_output_view = stage_output_view;
+                            actual_output_texture = stage_output_texture;
                         }
                     } else {
                         intermediate_views.push(stage_output_view);
@@ -408,6 +417,8 @@ impl GraphExecutor {
         }
 
         let output_frame = GpuFrame {
+            texture: actual_output_texture
+                .expect("frame output must have a backing texture"),
             view: actual_output_view.clone(),
             size: output_size,
             frame_id: frame_inputs

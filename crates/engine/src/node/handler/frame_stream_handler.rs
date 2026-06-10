@@ -304,7 +304,7 @@ impl FrameStreamHandler {
         let width = frame.dimensions().width();
         let height = frame.dimensions().height();
 
-        let texture_view = upload_stager
+        let (texture_view, texture) = upload_stager
             .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
             .map_err(|error| FrameStreamHandlerError::TextureUpload {
                 path: request.file_path.clone(),
@@ -312,6 +312,7 @@ impl FrameStreamHandler {
             })?;
 
         let gpu_frame = GpuFrame::new(
+            texture,
             texture_view,
             wgpu::Extent3d {
                 width,

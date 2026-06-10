@@ -5,15 +5,20 @@
 //!
 //! This abstraction avoids allocating a new GPU texture every frame when
 //! feeding CPU-decoded frames into the pipeline.
+use std::sync::Arc;
+
 use crate::engine_errors::EngineError;
 
-/// Stages CPU RGBA data into a GPU texture and returns a [wgpu::TextureView].
+/// Stages CPU RGBA data into a GPU texture and returns a view + shared texture handle.
 ///
 /// The stager lazily allocates a backing texture sized to the requested
 /// dimensions; subsequent calls with equal-or-smaller sizes reuse the same
 /// texture. If a larger size is requested the backing texture is recreated.
+///
+/// The returned `Arc<wgpu::Texture>` enables GPU→CPU readback by callers
+/// (e.g. the Tauri frame bridge) without exposing internal stager state.
 pub struct UploadStager {
-    tex: Option<wgpu::Texture>,
+    tex: Option<Arc<wgpu::Texture>>,
     extent: wgpu::Extent3d,
 }
 
@@ -55,15 +60,22 @@ impl UploadStager {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
-        self.tex = Some(tex);
+        self.tex = Some(Arc::new(tex));
     }
 
     /// Blit RGBA pixel data from CPU memory into the staging texture and
-    /// return a [wgpu::TextureView] that can be used for sampling.
+    /// return a `(TextureView, Arc<Texture>)` pair.
+    ///
+    /// The `Arc<Texture>` allows callers to do GPU→CPU readback without
+    /// accessing stager internals. Note that the stager reuses the same
+    /// texture across calls of equal dimensions, so do any readback before
+    /// the next upload.
     pub fn cpu_to_gpu_rgba(
         &mut self,
         device: &wgpu::Device,
@@ -71,7 +83,7 @@ impl UploadStager {
         width: u32,
         height: u32,
         data: &[u8],
-    ) -> Result<wgpu::TextureView, EngineError> {
+    ) -> Result<(wgpu::TextureView, Arc<wgpu::Texture>), EngineError> {
         let expected_size = (width * height * 4) as usize;
 
         if data.len() < expected_size {
@@ -83,18 +95,17 @@ impl UploadStager {
 
         self.ensure_texture(device, width, height);
 
+        let tex = self.tex.as_ref().ok_or(EngineError::TextureNotInitialized)?;
+
         // Copy CPU data into the GPU texture using a staged write.
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: self
-                    .tex
-                    .as_ref()
-                    .ok_or(EngineError::TextureNotInitialized)?,
+                texture: tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            data, // the framebuffer data
+            data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
@@ -103,12 +114,7 @@ impl UploadStager {
             self.extent,
         );
 
-        // Create and return the texture view; unwrap is safe here because we
-        // checked [tex] above when writing.
-        Ok(self
-            .tex
-            .as_ref()
-            .unwrap()
-            .create_view(&wgpu::TextureViewDescriptor::default()))
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        Ok((view, tex.clone()))
     }
 }

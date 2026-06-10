@@ -1,0 +1,107 @@
+/* ─── Shared node card styles ─────────────────────────────── */
+
+.node-card {
+  width: 210px;
+  background: var(--bg-node);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--cat-color, var(--cat-utility));
+  border-radius: 6px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  font-family: inherit;
+  cursor: default;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.node-card.selected {
+  border-color: var(--accent);
+  border-left-color: var(--cat-color, var(--cat-utility));
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65), var(--accent-glow);
+}
+
+/* ── Category accent colors ─────────────────────────────── */
+/* Built-in categories */
+.node-card[data-cat="source"]   { --cat-color: var(--cat-source);   }
+.node-card[data-cat="audio"]    { --cat-color: var(--cat-audio);    }
+.node-card[data-cat="effect"]   { --cat-color: var(--cat-effect);   }
+.node-card[data-cat="analysis"] { --cat-color: var(--cat-analysis); }
+.node-card[data-cat="output"]   { --cat-color: var(--cat-output);   }
+.node-card[data-cat="utility"]  { --cat-color: var(--cat-utility);  }
+/* Real engine categories */
+.node-card[data-cat="input"]       { --cat-color: var(--cat-source);   }
+.node-card[data-cat="color"]       { --cat-color: var(--cat-effect);   }
+.node-card[data-cat="distortion"]  { --cat-color: var(--cat-effect);   }
+.node-card[data-cat="compositing"] { --cat-color: var(--cat-source);   }
+.node-card[data-cat="glitch"]      { --cat-color: var(--cat-analysis); }
+.node-card[data-cat="transform"]   { --cat-color: var(--cat-effect);   }
+.node-card[data-cat="other"]       { --cat-color: var(--cat-utility);  }
+
+/* ─── Header ──────────────────────────────────────────────── */
+
+.node-header {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.node-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--cat-color, var(--cat-utility));
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.node-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Port rows (shared base) ─────────────────────────────── */
+
+.port-row {
+  height: 26px;
+  display: flex;
+  align-items: center;
+}
+
+.port-label {
+  font-size: 10px;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* ─── Handles (override vue-flow defaults) ────────────────── */
+
+.port-handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--bg-node) !important;
+  transition: transform 0.1s !important;
+}
+
+.port-handle:hover {
+  transform: translate(-50%, -50%) scale(1.35) !important;
+}
+
+.port-handle.right:hover {
+  transform: translate(50%, -50%) scale(1.35) !important;
+}
+
+.port-handle.video { background: var(--port-video) !important; }
+.port-handle.audio { background: var(--port-audio) !important; }
+.port-handle.float { background: var(--port-float) !important; }
+.port-handle.int   { background: var(--port-float) !important; }
+.port-handle.bool  { background: var(--port-bool)  !important; }
+.port-handle.midi  { background: var(--port-audio) !important; }
+.port-handle.any   { background: var(--port-any)   !important; }

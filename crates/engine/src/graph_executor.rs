@@ -100,8 +100,17 @@ pub struct ExecutionResult<'a> {
     pub outputs: &'a HashMap<String, NodeValue>,
 }
 
+/// A texture + view pair returned from the render target caches.
+/// Both are needed: the view for render/compute passes, the texture for GPU→CPU readback.
+#[derive(Debug, Clone)]
+pub(crate) struct RenderTarget {
+    pub texture: std::sync::Arc<wgpu::Texture>,
+    pub view: std::sync::Arc<wgpu::TextureView>,
+}
+
 #[derive(Debug)]
 struct CachedRenderTarget {
+    texture: std::sync::Arc<wgpu::Texture>,
     view: std::sync::Arc<wgpu::TextureView>,
     size: wgpu::Extent3d,
 }
@@ -663,7 +672,7 @@ impl GraphExecutor {
         device: &wgpu::Device,
         node_id: EngineNodeId,
         output_size: wgpu::Extent3d,
-    ) -> std::sync::Arc<wgpu::TextureView> {
+    ) -> RenderTarget {
         let cached = self.render_target_cache.entry(node_id).or_insert_with(|| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("shader_output"),
@@ -673,11 +682,13 @@ impl GraphExecutor {
                 dimension: wgpu::TextureDimension::D2,
                 format: self.target_format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             CachedRenderTarget {
+                texture: std::sync::Arc::new(texture),
                 view: std::sync::Arc::new(view),
                 size: output_size,
             }
@@ -692,15 +703,20 @@ impl GraphExecutor {
                 dimension: wgpu::TextureDimension::D2,
                 format: self.target_format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            cached.texture = std::sync::Arc::new(texture);
             cached.view = std::sync::Arc::new(view);
             cached.size = output_size;
         }
 
-        cached.view.clone()
+        RenderTarget {
+            texture: cached.texture.clone(),
+            view: cached.view.clone(),
+        }
     }
 
     pub(crate) fn get_or_create_render_stage_target(
@@ -726,10 +742,10 @@ impl GraphExecutor {
                         | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                 CachedRenderTarget {
-                    view: std::sync::Arc::new(
-                        texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                    ),
+                    texture: std::sync::Arc::new(texture),
+                    view: std::sync::Arc::new(view),
                     size: output_size,
                 }
             });
@@ -746,8 +762,9 @@ impl GraphExecutor {
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
-            cached.view =
-                std::sync::Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            cached.texture = std::sync::Arc::new(texture);
+            cached.view = std::sync::Arc::new(view);
             cached.size = output_size;
         }
 
@@ -761,7 +778,7 @@ impl GraphExecutor {
         stage_index: usize,
         output_size: wgpu::Extent3d,
         format: wgpu::TextureFormat,
-    ) -> std::sync::Arc<wgpu::TextureView> {
+    ) -> RenderTarget {
         let cache_key = (node_id, stage_index, format_to_cache_key(format));
         let cached = self
             .compute_stage_target_cache
@@ -775,11 +792,13 @@ impl GraphExecutor {
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 });
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                 CachedRenderTarget {
+                    texture: std::sync::Arc::new(texture),
                     view: std::sync::Arc::new(view),
                     size: output_size,
                 }
@@ -793,15 +812,21 @@ impl GraphExecutor {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            cached.texture = std::sync::Arc::new(texture);
             cached.view = std::sync::Arc::new(view);
             cached.size = output_size;
         }
 
-        cached.view.clone()
+        RenderTarget {
+            texture: cached.texture.clone(),
+            view: cached.view.clone(),
+        }
     }
 
     fn is_cacheable_node(definition: &NodeDefinition) -> bool {
