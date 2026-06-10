@@ -20,13 +20,20 @@ use std::time::Duration;
 
 use engine::GpuFrame;
 use engine::engine_outpost::{EngineOutpostEvent, EventFilter, EventKind};
+use serde::Serialize;
 use engine::node::NodeLibrary;
 use media::frame::Uid;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::engine_state::EngineState;
 use crate::state::frame_state::{FrameData, FrameState};
 use crate::state::output_state::{GpuContext, OutputRect, OutputState};
+
+#[derive(Clone, Serialize)]
+struct FpsPayload {
+    num: u32,
+    den: u32,
+}
 
 /// Engine output format. RGBA so readback bytes go straight into a canvas
 /// `ImageData` without channel swizzling.
@@ -94,7 +101,10 @@ fn run(app: AppHandle) -> Result<(), String> {
     let output_state = app.state::<OutputState>();
     *output_state.gpu.lock().unwrap() = Some(Arc::new(GpuContext { instance, adapter }));
 
-    let events = handle.subscribe(EventFilter::Only(vec![EventKind::FrameReady]));
+    let events = handle.subscribe(EventFilter::Only(vec![
+        EventKind::FrameReady,
+        EventKind::FpsChanged,
+    ]));
     let frame_state = app.state::<FrameState>();
 
     let mut bridge = FrameBridge::new(device, queue);
@@ -104,11 +114,18 @@ fn run(app: AppHandle) -> Result<(), String> {
     // `handle` stays owned by this loop; dropping it would shut the engine down.
     let mut last_frame: Option<GpuFrame> = None;
     loop {
-        // Keep only the newest frame if the engine outpaced us.
+        // Keep only the newest frame; forward FPS changes immediately.
         let mut frame = None;
         for event in events.drain() {
-            if let EngineOutpostEvent::FrameReady(f) = event {
-                frame = Some(f);
+            match event {
+                EngineOutpostEvent::FrameReady(f) => frame = Some(f),
+                EngineOutpostEvent::GlobalStreamTargetFpsChanged(fps) => {
+                    let _ = app.emit("fps-changed", FpsPayload {
+                        num: fps.num(),
+                        den: fps.den(),
+                    });
+                }
+                _ => {}
             }
         }
 
@@ -129,8 +146,11 @@ fn run(app: AppHandle) -> Result<(), String> {
                 info.height = frame.size.height;
                 info.active = true;
             }
-            if let Err(e) = bridge.update_preview(frame, &frame_state) {
-                util::debug_log_warning!("Frame readback failed: {e}");
+            match bridge.update_preview(frame, &frame_state) {
+                Ok(()) => {
+                    let _ = app.emit("frame-ready", ());
+                }
+                Err(e) => util::debug_log_warning!("Frame readback failed: {e}"),
             }
         }
 

@@ -14,7 +14,7 @@ const props = defineProps<{ surface?: boolean }>()
 const canvas = ref<HTMLCanvasElement | null>(null)
 const screen = ref<HTMLElement | null>(null)
 
-const { hasFrame, resolution } = props.surface
+const { hasFrame, resolution, fps } = props.surface
   ? useSurfaceOutput(screen)
   : useFrameStream(canvas)
 </script>
@@ -37,6 +37,7 @@ const { hasFrame, resolution } = props.surface
     <div class="status-bar">
       <span class="stat">OUTPUT</span>
       <span class="stat mono">{{ resolution }}</span>
+      <span class="stat mono" v-if="hasFrame">{{ fps }} fps</span>
       <span class="stat mono" :class="{ live: hasFrame }">
         {{ hasFrame ? '● LIVE' : '○ IDLE' }}
       </span>

@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 /** How often the status bar refreshes resolution / liveness. */
@@ -20,10 +21,20 @@ interface OutputInfo {
  * The given element marks where the video letterboxes; everything rendered
  * by the webview must be transparent there so the surface shows through.
  */
+function formatFps(num: number, den: number): string {
+  const f = num / den
+  if (Math.abs(f - 23.976) < 0.01) return '23.976'
+  if (Math.abs(f - 29.97)  < 0.01) return '29.97'
+  if (Math.abs(f - 59.94)  < 0.01) return '59.94'
+  return den === 1 ? `${num}` : f.toFixed(3).replace(/\.?0+$/, '')
+}
+
 export function useSurfaceOutput(el: Ref<HTMLElement | null>) {
   const hasFrame   = ref(false)
   const resolution = ref('-- × --')
-  let observer: ResizeObserver | null = null
+  const fps        = ref('--')
+  let observer:    ResizeObserver | null = null
+  let unlistenFps: UnlistenFn | null = null
   let infoTimer = 0
   let attached  = false
 
@@ -77,13 +88,17 @@ export function useSurfaceOutput(el: Ref<HTMLElement | null>) {
     window.addEventListener('resize', reportRect)
     infoTimer = window.setInterval(pollInfo, INFO_POLL_MS)
     pollInfo()
+    unlistenFps = await listen<{ num: number; den: number }>('fps-changed', ({ payload }) => {
+      fps.value = formatFps(payload.num, payload.den)
+    })
   })
   onUnmounted(() => {
     observer?.disconnect()
     window.removeEventListener('resize', reportRect)
     window.clearInterval(infoTimer)
+    unlistenFps?.()
     if (attached) invoke('detach_output_surface').catch(() => {})
   })
 
-  return { hasFrame, resolution }
+  return { hasFrame, resolution, fps }
 }
