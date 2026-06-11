@@ -28,11 +28,14 @@ clap = { version = "4.5.51", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-egui = { version = "0.33", features = ["serde"] }
-egui-wgpu = "0.33.3"
-egui_extras = "0.33.3"
 windows-sys = "0.59"
 image = { version = "0.25" }
+egui = { version = "0.33", features = ["serde"] }
+egui_extras = "0.33.3"
+egui-wgpu = "0.33.3"
+eframe = { version = "0.33", features = ["wgpu", "default_fonts"] }
+wgpu = "27"
+winit = "0.30"
 
 # If one thread panics, make all the threads panic. This does disable the
 # ability for us to handle a thread panicking, but I don't think there's

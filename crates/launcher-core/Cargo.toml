@@ -20,6 +20,6 @@ util = { workspace = true, features = [
     "fuzzy_search",
     "crash_reporting",
 ] }
-eframe = { version = "0.33" }
+eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true, features = ["image"] }

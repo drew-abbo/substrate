@@ -5,12 +5,8 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-winit = "0.30"
-wgpu = { version = "27", default-features = false, features = [
-    "vulkan",
-    "metal",
-    "wgsl",
-] }
+winit = { workspace = true }
+wgpu = { workspace = true }
 pollster = "0.4"
 rand = "0.10"
 util = { workspace = true, features = [
