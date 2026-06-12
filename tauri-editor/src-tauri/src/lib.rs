@@ -5,6 +5,7 @@ mod state;
 use state::engine_state::EngineState;
 use state::frame_state::FrameState;
 use state::output_state::OutputState;
+use state::project_state::ProjectState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -12,10 +13,19 @@ pub fn run() {
     // panic-on-errors behaviour that is on by default in debug builds.
     util::debug_log::panic_on_errors::disable();
 
+    // The launcher spawns us as: tauri-editor --project <id>
+    let project_id = {
+        let args: Vec<String> = std::env::args().collect();
+        args.windows(2)
+            .find(|w| w[0] == "--project")
+            .map(|w| w[1].clone())
+    };
+
     tauri::Builder::default()
         .manage(FrameState::new())
         .manage(EngineState::new())
         .manage(OutputState::new())
+        .manage(ProjectState::new(project_id))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -32,6 +42,10 @@ pub fn run() {
             commands::output::detach_output_surface,
             commands::output::set_output_rect,
             commands::output::get_output_info,
+            commands::project::get_project_id,
+            commands::project::load_project,
+            commands::project::save_project,
+            commands::project::close_editor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -50,6 +50,12 @@ function setValue(portId: string, value: number | boolean | string) {
   onValueChange()
 }
 
+// Update reactive data without triggering an engine sync — used for sliders
+// so the canvas stays smooth while dragging; the sync fires on @change (mouseup).
+function setSliderValue(portId: string, value: number) {
+  updateNodeData(props.id, { values: { ...props.data.values, [portId]: value } })
+}
+
 function numberFrom(e: Event): number {
   return Number((e.target as HTMLInputElement).value)
 }
@@ -152,7 +158,8 @@ function iconPath(cat: string): string {
           :max="port.widget.max"
           :step="port.widget.step ?? 0.01"
           :value="Number(data.values[port.id] ?? port.widget.defaultFloat ?? 0)"
-          @input="setValue(port.id, numberFrom($event))"
+          @input="setSliderValue(port.id, numberFrom($event))"
+          @change="onValueChange()"
           @mousedown.stop
         />
         <input

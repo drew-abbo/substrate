@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Node, Edge } from '@vue-flow/core'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 import DynamicNode from './nodes/DynamicNode.vue'
 import type { DynamicNodeData } from './nodes/DynamicNode.vue'
@@ -64,15 +65,19 @@ const OUTPUT_NODE_ID = 'output-node'
 const nodeDefs = ref<NodeDef[]>([])
 const nodeTypes = { dynamic: DynamicNode as any, output: OutputNode as any }
 
-function makeNodeData(type: string): DynamicNodeData {
+function makeNodeData(
+  type: string,
+  savedValues?: Record<string, number | boolean | string>,
+): DynamicNodeData {
   const def = nodeDefs.value.find(d => d.nodeType === type)
+  const defaults = defaultValues(def)
   return {
     nodeType: type,
     label:    def?.label    ?? type,
     category: def?.category ?? 'other',
     inputs:   def?.inputs   ?? [],
     outputs:  def?.outputs  ?? [],
-    values:   defaultValues(def),
+    values:   savedValues ? { ...defaults, ...savedValues } : defaults,
   }
 }
 
@@ -104,34 +109,176 @@ const {
   onConnect, addEdges, addNodes,
   removeNodes, removeEdges,
   getSelectedNodes, getSelectedEdges,
-  onNodesChange, onEdgesChange,
+  onNodesChange, onEdgesChange, onNodeDragStop,
   project, fitView,
+  getViewport, setViewport,
 } = useVueFlow()
 
 onConnect(p => {
   addEdges([{ ...p, type: 'smoothstep', style: { stroke: '#5a5a8a', strokeWidth: 1.5 } }])
   scheduleSync()
+  markDirty()
 })
 
-// ── Engine sync ───────────────────────────────────────────
-// Mirror of the old editor's push_graph_to_engine: serialize the vue-flow
-// graph and send it to the engine whenever its structure or values change.
+// ── Engine sync + project save ────────────────────────────
 let syncTimer: number | undefined
+let unlistenClose: (() => void) | null = null
+
+function doClose() {
+  // Unlisten before asking Rust to close so Tauri goes through its normal
+  // window-destruction path (giving WebView2 time to unregister its window
+  // classes) instead of the abrupt app.exit(0) path we used before.
+  unlistenClose?.()
+  unlistenClose = null
+  invoke('close_editor').catch(() => {})
+}
+// True once we've sent a non-empty graph so that a disconnect triggers a stop.
+let engineIsRunning = false
+// Suppresses engine sync during initial load (VueFlow emits 'add' events async on mount).
+let isLoading = true
+
+const isDirty           = ref(false)
+const toastVisible      = ref(false)
+const toastError        = ref('')
+const closeDialogVisible = ref(false)
+let toastTimer: number | undefined
 
 function scheduleSync() {
   window.clearTimeout(syncTimer)
   syncTimer = window.setTimeout(syncGraph, 60)
 }
 
-// Lets DynamicNode widgets trigger a sync when a value changes.
-provide('graphValueChanged', scheduleSync)
+function markDirty() {
+  isDirty.value = true
+}
 
+// ── Saved-graph types (mirror commands/project.rs) ────────
+interface SavedNode {
+  id: string; nodeType: string; x: number; y: number
+  values: Record<string, unknown>
+}
+interface SavedEdge {
+  id: string; source: string; sourceHandle: string
+  target: string; targetHandle: string
+}
+interface SavedViewport { x: number; y: number; zoom: number }
+interface SavedGraph {
+  nodes: SavedNode[]; edges: SavedEdge[]; viewport?: SavedViewport
+}
+
+type FlatNode = { id: string; position: { x: number; y: number }; data: unknown }
+type FlatEdge = { id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }
+
+async function saveGraph() {
+  const vp = getViewport()
+  const savedNodes: SavedNode[] = (nodes.value as FlatNode[]).map(n => ({
+    id:       n.id,
+    nodeType: n.id === OUTPUT_NODE_ID ? 'output' : (n.data as DynamicNodeData).nodeType,
+    x:        n.position.x,
+    y:        n.position.y,
+    values:   n.id === OUTPUT_NODE_ID ? {} : (n.data as DynamicNodeData).values,
+  }))
+  const savedEdges: SavedEdge[] = (edges.value as FlatEdge[]).map(e => ({
+    id:           e.id,
+    source:       e.source,
+    sourceHandle: e.sourceHandle ?? '',
+    target:       e.target,
+    targetHandle: e.targetHandle ?? '',
+  }))
+  const graph: SavedGraph = {
+    nodes: savedNodes,
+    edges: savedEdges,
+    viewport: { x: vp.x, y: vp.y, zoom: vp.zoom },
+  }
+  try {
+    await invoke('save_project', { graph })
+    isDirty.value = false
+    toastError.value = ''
+  } catch (err) {
+    const msg = String(err)
+    console.warn('Save failed:', msg)
+    toastError.value = `Save failed: ${msg}`
+    toastVisible.value = true
+    window.clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => { toastVisible.value = false; toastError.value = '' }, 4000)
+  }
+}
+
+function showSavedToast() {
+  toastError.value = ''
+  toastVisible.value = true
+  window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => { toastVisible.value = false }, 2000)
+}
+
+async function saveAndToast() {
+  await saveGraph()
+  showSavedToast()
+}
+
+// Resolved by dialog buttons; the onCloseRequested handler awaits this.
+type CloseAction = 'save' | 'discard' | 'cancel'
+let resolveClose: ((a: CloseAction) => void) | null = null
+
+function dialogSave()    { resolveClose?.('save') }
+function dialogDiscard() { resolveClose?.('discard') }
+function dialogCancel()  { resolveClose?.('cancel') }
+
+async function loadProject() {
+  let saved: SavedGraph
+  try {
+    saved = await invoke<SavedGraph>('load_project')
+  } catch (err) {
+    console.warn('Load failed:', err)
+    return
+  }
+  if (!saved.nodes.length) return
+
+  // Cast through unknown to avoid VueFlow's deep Node/Edge generics triggering ts(2589)
+  nodes.value = saved.nodes.map(sn => {
+    if (sn.nodeType === 'output') {
+      return { id: OUTPUT_NODE_ID, type: 'output', position: { x: sn.x, y: sn.y }, deletable: false, data: {} }
+    }
+    return {
+      id:       sn.id,
+      type:     'dynamic',
+      position: { x: sn.x, y: sn.y },
+      data:     makeNodeData(sn.nodeType, sn.values as Record<string, number | boolean | string>),
+    }
+  }) as unknown as Node[]
+  edges.value = saved.edges.map(se => ({
+    id:           se.id,
+    source:       se.source,
+    sourceHandle: se.sourceHandle,
+    target:       se.target,
+    targetHandle: se.targetHandle,
+    type:         'smoothstep',
+    style:        { stroke: '#5a5a8a', strokeWidth: 1.5 },
+  })) as unknown as Edge[]
+  if (saved.viewport) {
+    await nextTick()
+    setViewport({ x: saved.viewport.x, y: saved.viewport.y, zoom: saved.viewport.zoom })
+  }
+}
+
+// Lets DynamicNode widgets trigger a sync when a value changes.
+// Guard isLoading: widgets fire during initial render when loaded nodes mount.
+provide('graphValueChanged', () => {
+  if (isLoading) return
+  scheduleSync()
+  markDirty()
+})
+
+// Only used for engine sync — dirty tracking is done via explicit user-action calls below.
 onNodesChange(changes => {
+  if (isLoading) return
   if (changes.some(c => c.type === 'add' || c.type === 'remove')) scheduleSync()
 })
 onEdgesChange(changes => {
+  if (isLoading) return
   if (changes.some(c => c.type === 'add' || c.type === 'remove')) scheduleSync()
 })
+onNodeDragStop(() => markDirty())
 
 interface EdgePayload {
   fromNode: string
@@ -157,16 +304,26 @@ async function syncGraph() {
     })
   }
 
+  // Only drive the engine when something is wired to the output node.
+  // If nothing is connected and the engine wasn't running, skip entirely.
+  // If nothing is connected but the engine WAS running (user just disconnected),
+  // send an empty graph so the engine stops.
+  if (!outputSource && !engineIsRunning) return
+
   const nodePayloads: { id: string; nodeType: string; values: DynamicNodeData['values'] }[] = []
-  for (const n of nodes.value) {
-    if (n.id === OUTPUT_NODE_ID) continue
-    const data = n.data as DynamicNodeData
-    nodePayloads.push({ id: n.id, nodeType: data.nodeType, values: data.values })
+  if (outputSource) {
+    for (const n of nodes.value) {
+      if (n.id === OUTPUT_NODE_ID) continue
+      const data = n.data as DynamicNodeData
+      nodePayloads.push({ id: n.id, nodeType: data.nodeType, values: data.values })
+    }
   }
+
+  engineIsRunning = outputSource !== null
 
   const payload = {
     nodes: nodePayloads,
-    edges: edgePayloads,
+    edges: outputSource ? edgePayloads : [],
     outputSource,
   }
   try {
@@ -224,6 +381,7 @@ function onPickerSelect(type: string) {
     position: { x: picker.value.flowX, y: picker.value.flowY },
     data:     makeNodeData(type),
   }])
+  markDirty()
   picker.value = null
 }
 
@@ -239,6 +397,7 @@ function onNodeContextMenu({ event, node }: { event: MouseEvent | TouchEvent; no
 function deleteNode(id: string) {
   if (id === OUTPUT_NODE_ID) { nodeMenu.value = null; return }
   removeNodes([{ id } as any])
+  markDirty()
   nodeMenu.value = null
 }
 
@@ -247,15 +406,22 @@ function onEdgeContextMenu({ event, edge }: { event: MouseEvent | TouchEvent; ed
   event.preventDefault()
   event.stopPropagation()
   removeEdges([{ id: edge.id } as any])
+  markDirty()
 }
 
 // ── Keyboard ──────────────────────────────────────────────
 function onKeyDown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    saveAndToast()
+    return
+  }
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.key === 'Delete' || e.key === 'Backspace') {
     removeNodes(getSelectedNodes.value.filter(n => n.id !== OUTPUT_NODE_ID))
     removeEdges(getSelectedEdges.value)
+    markDirty()
   }
   if (e.key === 'Escape') closeAll()
 }
@@ -278,12 +444,41 @@ function addNode(type: string) {
     position: { x: 200 + Math.random() * 100, y: 100 + Math.random() * 80 },
     data:     makeNodeData(type),
   }])
+  markDirty()
 }
 defineExpose({ addNode })
 
 // ── Lifecycle ─────────────────────────────────────────────
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
+  unlistenClose = await getCurrentWindow().onCloseRequested(async event => {
+    // Always prevent Tauri's default — in Tauri 2 NOT calling preventDefault()
+    // causes Tauri to internally re-call close(), which re-fires this handler
+    // and infinite-loops. We handle closing explicitly in every path instead.
+    event.preventDefault()
+
+    if (!isDirty.value) {
+      doClose()
+      return
+    }
+
+    // Pause on unsaved changes: show dialog and wait for user's decision.
+    const action = await new Promise<CloseAction>(resolve => {
+      resolveClose = resolve
+      closeDialogVisible.value = true
+    })
+    closeDialogVisible.value = false
+    resolveClose = null
+
+    if (action === 'cancel') return
+
+    if (action === 'save') {
+      await saveGraph()
+    }
+
+    isDirty.value = false
+    doClose()
+  })
   try {
     const raw = await invoke<RawNodeDef[]>('get_node_definitions')
     nodeDefs.value = raw.map(d => ({
@@ -293,11 +488,22 @@ onMounted(async () => {
       inputs:    d.inputs.map(mapPort),
       outputs:   d.outputs.map(mapPort),
     }))
+    await loadProject()
+    // Wait for VueFlow's async 'add' change events to fire and be ignored by isLoading,
+    // then clear the flag so subsequent user changes are tracked normally.
+    await nextTick()
+    await nextTick()
+    isLoading = false
+    isDirty.value = false
   } catch (err) {
     console.warn('Could not load node definitions:', err)
+    isLoading = false
   }
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  unlistenClose?.()
+})
 </script>
 
 <template>
@@ -370,6 +576,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       @close="picker = null"
     />
 
+    <!-- Saved / error toast -->
+    <Transition name="toast">
+      <div v-if="toastVisible" class="save-toast" :class="{ error: toastError }">
+        {{ toastError || 'Saved' }}
+      </div>
+    </Transition>
+
+    <!-- Unsaved-changes dialog -->
+    <div v-if="closeDialogVisible" class="dialog-backdrop">
+      <div class="dialog-box">
+        <p class="dialog-msg">You have unsaved changes. Save before closing?</p>
+        <div class="dialog-actions">
+          <button class="dialog-btn primary" @click="dialogSave">Save</button>
+          <button class="dialog-btn"         @click="dialogDiscard">Don't Save</button>
+          <button class="dialog-btn"         @click="dialogCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -432,6 +657,76 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 .ctx-item.danger:hover  { color: var(--cat-output); }
 .ctx-item svg           { width: 13px; height: 13px; flex-shrink: 0; }
 .ctx-locked             { color: var(--text-3); cursor: default; pointer-events: none; }
+
+/* ── Saved toast ────────────────────────────────────────── */
+.save-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 7px 18px;
+  font-size: 12px;
+  color: var(--text-2);
+  box-shadow: var(--shadow-popup);
+  pointer-events: none;
+  z-index: 500;
+}
+.save-toast.error { color: var(--cat-output, #e05); border-color: var(--cat-output, #e05); }
+.toast-enter-active, .toast-leave-active { transition: opacity 0.2s, transform 0.2s; }
+.toast-enter-from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+.toast-leave-to   { opacity: 0; transform: translateX(-50%) translateY(6px); }
+
+/* ── Unsaved-changes dialog ─────────────────────────────── */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 600;
+}
+.dialog-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 24px 28px 20px;
+  box-shadow: var(--shadow-popup);
+  min-width: 300px;
+  max-width: 380px;
+}
+.dialog-msg {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dialog-btn {
+  padding: 6px 16px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.08s, color 0.08s;
+}
+.dialog-btn:hover { background: var(--bg-canvas); color: var(--text-1); }
+.dialog-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.dialog-btn.primary:hover { filter: brightness(1.15); }
 </style>
 
 <style>

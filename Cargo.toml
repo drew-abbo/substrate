@@ -9,7 +9,8 @@ members = [
   "crates/util",           # lib
   "crates/media",          # lib
   "crates/engine",         # lib
-  "tauri-editor/src-tauri", # tauri editor (new frontend)
+  "tauri-editor/src-tauri",   # tauri editor (new frontend)
+  "tauri-launcher/src-tauri", # tauri launcher (new frontend)
 ]
 resolver = "3"
 

@@ -18,7 +18,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 engine = { workspace = true }
 media = { workspace = true }
-util = { workspace = true }
+util = { workspace = true, features = ["local_data"] }
 wgpu = { version = "27", default-features = false, features = [
     "vulkan",
     "metal",

@@ -99,6 +99,10 @@ function clampPos(x: number, y: number, w: number) {
   return { x: Math.max(4, Math.min(x, maxX)), y: Math.max(36, Math.min(y, maxY)) }
 }
 
+function onWindowResize() {
+  pos.value = clampPos(pos.value.x, pos.value.y, width.value)
+}
+
 // ── Detach ────────────────────────────────────────────────
 async function detach() {
   try {
@@ -133,10 +137,12 @@ onMounted(() => {
   }
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup',   stopAll)
+  window.addEventListener('resize',    onWindowResize)
 })
 onUnmounted(() => {
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('mouseup',   stopAll)
+  window.removeEventListener('resize',    onWindowResize)
 })
 </script>
 
