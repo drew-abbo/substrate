@@ -1,0 +1,7 @@
+{
+  "name": "bio-visualizer",
+  "private": true,
+  "scripts": {
+    "dev": "cargo build -p tauri-editor && npm --prefix tauri-launcher run tauri -- dev"
+  }
+}
