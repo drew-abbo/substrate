@@ -1,12 +1,16 @@
+use std::collections::HashSet;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use serde::Serialize;
-use tauri::{command, Manager};
+use tauri::{command, Emitter, Manager};
 use util::local_data::{
     self,
     project::{Project, ProjectHeader, ProjectId, ProjectInfo},
 };
+
+pub struct OpenProjects(pub Arc<Mutex<HashSet<String>>>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,16 +115,41 @@ fn open_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
     Command::new("xdg-open").arg(path).spawn().map(|_| ())
 }
 
+/// Tracks how many editors are open when running in hide-and-wait mode.
+static OPEN_EDITOR_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Spawn the editor binary with the given project ID.
 ///
-/// When `keep_open` is false the launcher window is hidden immediately and a
-/// background thread re-shows it once the editor process exits.
+/// Returns an error if the project is already open in another editor.
+///
+/// When `keep_open` is true the launcher stays visible and the editor runs
+/// independently. When `keep_open` is false the launcher hides and exits once
+/// all editors opened in hide-mode have closed.
 #[command]
 pub fn open_project(
     app: tauri::AppHandle,
+    state: tauri::State<'_, OpenProjects>,
     id: String,
     keep_open: bool,
 ) -> Result<(), String> {
+    let project_id = ProjectId::try_from(id.clone())
+        .map_err(|e: util::local_data::project::ProjectError| e.to_string())?;
+    let project = Project::load(&project_id).map_err(|e| e.to_string())?;
+
+    // Check in-memory set first (catches rapid double-clicks before editor writes its lock).
+    {
+        let set = state.0.lock().unwrap();
+        if set.contains(&id) {
+            return Err(format!("Project '{}' is already open.", project.cached_info().name()));
+        }
+    }
+
+    // Fall back to disk-based lock (catches editors from a previous launcher session).
+    if project.is_open().map_err(|e| e.to_string())? {
+        return Err(format!("Project '{}' is already open.", project.cached_info().name()));
+    }
+
     #[cfg(target_os = "windows")]
     const EDITOR_BIN: &str = "tauri-editor.exe";
     #[cfg(not(target_os = "windows"))]
@@ -138,21 +167,37 @@ pub fn open_project(
         .spawn()
         .map_err(|e| format!("Failed to launch editor ({editor:?}): {e}"))?;
 
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.hide();
-    }
+    // Process spawned successfully — mark it as open immediately.
+    state.0.lock().unwrap().insert(id.clone());
 
-    std::thread::spawn(move || {
-        let _ = child.wait();
-        if keep_open {
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
-        } else {
-            std::process::exit(0);
+    let open_set = Arc::clone(&state.0);
+    let app_clone = app.clone();
+    let id_clone = id.clone();
+
+    if keep_open {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            open_set.lock().unwrap().remove(&id_clone);
+            let _ = app_clone.emit("project-editor-closed", id_clone);
+        });
+    } else {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.hide();
         }
-    });
+
+        OPEN_EDITOR_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            open_set.lock().unwrap().remove(&id_clone);
+            let _ = app_clone.emit("project-editor-closed", id_clone);
+            let remaining =
+                OPEN_EDITOR_COUNT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
+            if remaining == 0 {
+                std::process::exit(0);
+            }
+        });
+    }
 
     Ok(())
 }

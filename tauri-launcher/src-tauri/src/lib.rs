@@ -1,5 +1,7 @@
 mod commands;
 
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub fn run() {
@@ -10,6 +12,7 @@ pub fn run() {
                 let _ = win.set_focus();
             }
         }))
+        .manage(commands::OpenProjects(Arc::new(Mutex::new(HashSet::new()))))
         .invoke_handler(tauri::generate_handler![
             commands::list_projects,
             commands::create_project,

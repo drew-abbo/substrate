@@ -210,14 +210,6 @@ impl NodeLibrary {
         // Recursively scan for node.json files
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
-        if cfg!(debug_assertions) {
-            util::debug_log_info!(
-                "Loaded {} node definitions from {:?}",
-                definitions.len(),
-                nodes_folder
-            );
-        }
-
         Ok(Self {
             definitions,
             _nodes_folder: nodes_folder,
@@ -231,14 +223,6 @@ impl NodeLibrary {
 
         let mut definitions = HashMap::new();
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
-
-        if cfg!(debug_assertions) {
-            util::debug_log_info!(
-                "Loaded {} node definitions from user data: {:?}",
-                definitions.len(),
-                nodes_folder
-            );
-        }
 
         Ok(Self {
             definitions,
@@ -267,8 +251,6 @@ impl NodeLibrary {
                     // This is a node folder!
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
-                            util::debug_log_info!("Found node: {}", def.node.name);
-
                             if definitions.contains_key(&def.node.name) {
                                 util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",

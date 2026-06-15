@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import TitleBar from './components/TitleBar.vue'
 
 interface Project {
@@ -26,6 +27,9 @@ const newInput  = ref<HTMLInputElement | null>(null)
 const deletingProject = ref<ProjectRow | null>(null)
 const keepOpen = ref(false)
 
+const openingProjects = ref<string[]>([]) // currently launching (show spinner)
+const openProjects    = ref<string[]>([]) // editor is running (show open indicator)
+
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return projects.value
@@ -48,8 +52,18 @@ async function loadProjects() {
 }
 
 async function openProject(id: string) {
-  try { await invoke('open_project', { id, keepOpen: keepOpen.value }) }
-  catch (e) { showError(e) }
+  if (openingProjects.value.includes(id) || openProjects.value.includes(id)) return
+  openingProjects.value = [...openingProjects.value, id]
+  try {
+    await invoke('open_project', { id, keepOpen: keepOpen.value })
+    openingProjects.value = openingProjects.value.filter(x => x !== id)
+    if (keepOpen.value) {
+      openProjects.value = [...openProjects.value, id]
+    }
+  } catch (e) {
+    openingProjects.value = openingProjects.value.filter(x => x !== id)
+    showError(e)
+  }
 }
 
 function startCreate() {
@@ -112,7 +126,18 @@ async function doDelete() {
   deletingProject.value = null
 }
 
-onMounted(loadProjects)
+let unlistenEditorClosed: UnlistenFn | null = null
+
+onMounted(async () => {
+  await loadProjects()
+  unlistenEditorClosed = await listen<string>('project-editor-closed', (event) => {
+    openProjects.value = openProjects.value.filter(x => x !== event.payload)
+  })
+})
+
+onUnmounted(() => {
+  unlistenEditorClosed?.()
+})
 </script>
 
 <template>
@@ -166,10 +191,21 @@ onMounted(loadProjects)
         >
           <button
             class="row-open-btn"
-            title="Open project"
+            :class="{
+              'is-launching': openingProjects.includes(row.id),
+              'is-open': openProjects.includes(row.id),
+            }"
+            :disabled="openingProjects.includes(row.id) || openProjects.includes(row.id)"
+            :title="openingProjects.includes(row.id) ? 'Opening…' : openProjects.includes(row.id) ? 'Already open' : 'Open project'"
             @click="openProject(row.id)"
           >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2">
+            <!-- Spinner while launching -->
+            <svg v-if="openingProjects.includes(row.id)" class="spin-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="10" cy="10" r="7" stroke-opacity="0.25"/>
+              <path d="M10 3a7 7 0 0 1 7 7" stroke-linecap="round"/>
+            </svg>
+            <!-- Normal document icon -->
+            <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2">
               <rect x="4" y="3" width="12" height="14" rx="2"/>
               <path d="M7 8h6M7 11h4"/>
             </svg>
@@ -645,4 +681,26 @@ onMounted(loadProjects)
 .btn-sm:hover { background: var(--bg-surface); color: var(--text-1); }
 .btn-sm.danger { border-color: rgba(244, 63, 94, 0.3); color: #f43f5e; }
 .btn-sm.danger:hover { background: rgba(244, 63, 94, 0.1); }
+
+/* ── Open-project button states ──────────────────────────── */
+.row-open-btn:disabled { cursor: not-allowed; }
+
+.row-open-btn.is-launching {
+  background: var(--accent-dim);
+  border-color: rgba(0, 204, 168, 0.25);
+  color: var(--accent);
+}
+
+.row-open-btn.is-open {
+  background: var(--accent-dim);
+  border-color: rgba(0, 204, 168, 0.3);
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin-icon {
+  animation: spin 0.75s linear infinite;
+  transform-origin: center;
+}
 </style>

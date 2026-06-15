@@ -2,6 +2,14 @@
   "name": "bio-visualizer",
   "private": true,
   "scripts": {
-    "dev": "start /B npm --prefix tauri-editor run dev && cargo build -p tauri-editor && npm --prefix tauri-launcher run tauri -- dev"
+    "dev": "concurrently --kill-others -n \"editor-vite,launcher\" -c \"cyan,green\" \"npm --prefix tauri-editor run dev\" \"cargo build -p tauri-editor && npm run dev:launcher\"",
+    "dev:editor": "npm --prefix tauri-editor run tauri -- dev",
+    "dev:launcher": "npm --prefix tauri-launcher run tauri -- dev",
+    "build:editor": "npm --prefix tauri-editor run tauri -- build",
+    "build:launcher": "npm --prefix tauri-launcher run tauri -- build",
+    "lint": "concurrently -n \"editor,launcher\" -c \"cyan,green\" \"npm --prefix tauri-editor run lint\" \"npm --prefix tauri-launcher run lint\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
   }
 }
