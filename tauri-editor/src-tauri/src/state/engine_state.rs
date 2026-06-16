@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use engine::engine_outpost::{EngineCommand, EngineCommandSender};
@@ -16,6 +17,8 @@ pub struct EngineState {
     /// Stable mapping from frontend node ids to engine node ids so stream
     /// state inside the engine survives graph edits.
     pub node_ids: Mutex<HashMap<String, EngineNodeId>>,
+    /// Tracks whether the engine is paused. False = playing (default).
+    pub paused: AtomicBool,
 }
 
 impl EngineState {
@@ -24,6 +27,7 @@ impl EngineState {
             command_sender: Mutex::new(None),
             library: Mutex::new(None),
             node_ids: Mutex::new(HashMap::new()),
+            paused: AtomicBool::new(false),
         }
     }
 

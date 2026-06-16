@@ -2,7 +2,7 @@
 import TitleBar       from './components/TitleBar.vue'
 import NodeGraph      from './components/NodeGraph.vue'
 import FloatingOutput from './components/FloatingOutput.vue'
-import MonitorScreen  from './components/MonitorScreen.vue'
+import OutputDisplay  from './components/OutputDisplay.vue'
 
 const isOutputMode = new URLSearchParams(window.location.search).get('view') === 'output'
 
@@ -16,7 +16,7 @@ if (isOutputMode) document.body.style.background = 'transparent'
   <!-- ── Detached output window ── -->
   <div v-if="isOutputMode" class="output-mode">
     <TitleBar hide-menu />
-    <MonitorScreen surface />
+    <OutputDisplay surface />
   </div>
 
   <!-- ── Main editor ── -->

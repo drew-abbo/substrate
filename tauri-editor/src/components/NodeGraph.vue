@@ -495,6 +495,7 @@ onMounted(async () => {
     await nextTick()
     isLoading = false
     isDirty.value = false
+    syncGraph()
   } catch (err) {
     console.warn('Could not load node definitions:', err)
     isLoading = false

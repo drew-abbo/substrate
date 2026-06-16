@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import MonitorScreen from './MonitorScreen.vue'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import OutputDisplay from './OutputDisplay.vue'
+import { usePlayback } from '../composables/playback'
 
 // ── Panel dimensions ─────────────────────────────────────
 const MIN_W = 220
 const MAX_W = 1200
-// header(30) + body-pad(6+6) + bezel follows aspect-ratio from CSS
-// height formula: 42 + (width - 12) * (9/16)
+// header(30) + body-pad(6+6) + controls-bar(34) + bezel follows aspect-ratio
+// height formula: 76 + (width - 12) * (9/16)
 function computeHeight(w: number) {
-  return 42 + (w - 12) * (9 / 16)
+  return 76 + (w - 12) * (9 / 16)
 }
 
 const panelRef  = ref<HTMLElement | null>(null)
@@ -17,6 +19,22 @@ const width     = ref(360)
 const pos       = ref({ x: 20, y: 56 })
 const minimized  = ref(false)
 const isDetached = ref(false)
+
+// ── Playback ──────────────────────────────────────────────
+const { isPlaying, togglePlay, syncState } = usePlayback()
+const hasFrame = ref(false)
+const fps      = ref('--')
+
+function formatFps(num: number, den: number): string {
+  const f = num / den
+  if (Math.abs(f - 23.976) < 0.01) return '23.976'
+  if (Math.abs(f - 29.97)  < 0.01) return '29.97'
+  if (Math.abs(f - 59.94)  < 0.01) return '59.94'
+  return den === 1 ? `${num}` : f.toFixed(3).replace(/\.?0+$/, '')
+}
+
+let unlistenFrame: UnlistenFn | null = null
+let unlistenFps:   UnlistenFn | null = null
 
 // ── Drag ─────────────────────────────────────────────────
 let dragging    = false
@@ -120,14 +138,14 @@ async function detach() {
       transparent: true,
     })
     win.once('tauri://created',   () => { isDetached.value = true;  minimized.value = true  })
-    win.once('tauri://destroyed', () => { isDetached.value = false; minimized.value = false })
+    win.once('tauri://destroyed', () => { isDetached.value = false; minimized.value = false; syncState() })
   } catch (err) {
     console.warn('Could not open output window:', err)
   }
 }
 
 // ── Lifecycle ─────────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
   const el = panelRef.value
   if (el) {
     pos.value = {
@@ -138,11 +156,20 @@ onMounted(() => {
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup',   stopAll)
   window.addEventListener('resize',    onWindowResize)
+
+  // Sync playback state and wire up frame/fps events for the controls bar
+  await syncState()
+  unlistenFrame = await listen('frame-ready', () => { hasFrame.value = true })
+  unlistenFps   = await listen<{ num: number; den: number }>('fps-changed', ({ payload }) => {
+    fps.value = formatFps(payload.num, payload.den)
+  })
 })
 onUnmounted(() => {
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('mouseup',   stopAll)
   window.removeEventListener('resize',    onWindowResize)
+  unlistenFrame?.()
+  unlistenFps?.()
 })
 </script>
 
@@ -193,10 +220,24 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Screen -->
+    <!-- Screen + controls -->
     <div class="panel-body" v-show="!minimized && !isDetached">
       <div class="bezel">
-        <MonitorScreen />
+        <OutputDisplay />
+      </div>
+
+      <!-- Controls bar below the video -->
+      <div class="output-controls">
+        <button class="oc-btn" @click="togglePlay" :title="isPlaying ? 'Pause' : 'Play'">
+          <svg v-if="isPlaying" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="3" y="2" width="3.5" height="12" rx="1"/>
+            <rect x="9.5" y="2" width="3.5" height="12" rx="1"/>
+          </svg>
+          <svg v-else viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+          </svg>
+        </button>
+        <span class="oc-fps" v-if="hasFrame">{{ fps }} fps</span>
       </div>
     </div>
 
@@ -301,6 +342,43 @@ onUnmounted(() => {
   border-radius: 3px;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
+/* ── Controls bar ───────────────────────────────────────── */
+.output-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border-radius: 0 0 4px 4px;
+}
+
+.oc-btn {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.oc-btn:hover { background: var(--bg-elevated); color: var(--text-1); }
+.oc-btn svg   { width: 14px; height: 14px; }
+
+.oc-fps {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
 /* ── Detached notice ───────────────────────────────────── */

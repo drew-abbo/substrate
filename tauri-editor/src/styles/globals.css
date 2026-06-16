@@ -1,5 +1,5 @@
 /* ── Screen / monitor overlays ─────────────────────────────
-   Shared between MonitorScreen.vue and OutputArea.vue.
+   Shared between OutputDisplay.vue and OutputArea.vue.
    Components can override via scoped styles as needed.
    ───────────────────────────────────────────────────────── */
 

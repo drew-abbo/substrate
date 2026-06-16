@@ -46,6 +46,9 @@ pub fn run() {
             commands::project::load_project,
             commands::project::save_project,
             commands::project::close_editor,
+            commands::playback::play_streams,
+            commands::playback::pause_streams,
+            commands::playback::get_playback_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
