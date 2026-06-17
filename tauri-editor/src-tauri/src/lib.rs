@@ -38,6 +38,7 @@ pub fn run() {
             commands::frame::set_target_fps,
             commands::graph::update_graph,
             commands::nodes::get_node_definitions,
+            commands::nodes::list_midi_ports,
             commands::output::attach_output_surface,
             commands::output::detach_output_surface,
             commands::output::set_output_rect,

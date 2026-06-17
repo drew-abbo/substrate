@@ -1,5 +1,6 @@
 use engine::node::engine_node::NumberInputUiMode;
 use engine::node::{NodeInputKind, NodeLibrary, NodeOutputKind};
+use media::midi::streams::list_ports;
 use serde::Serialize;
 
 #[derive(Serialize, Default)]
@@ -101,6 +102,13 @@ fn widget_for_input(kind: &NodeInputKind) -> WidgetData {
         },
         _ => WidgetData::default(),
     }
+}
+
+#[tauri::command]
+pub fn list_midi_ports() -> Vec<String> {
+    list_ports()
+        .map(|iter| iter.map(|p| p.port_name().to_string()).collect())
+        .unwrap_or_default()
 }
 
 #[tauri::command]

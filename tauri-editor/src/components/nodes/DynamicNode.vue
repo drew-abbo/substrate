@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { inject } from 'vue'
+import { inject, ref, onMounted } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
+import { invoke } from '@tauri-apps/api/core'
 import { outputHandleTop, inputHandleTop } from '../../composables/nodeLayout'
 
 export interface Widget {
@@ -44,6 +45,14 @@ const { updateNodeData } = useVueFlow()
 
 /** Provided by NodeGraph; pushes the graph to the engine (debounced). */
 const onValueChange = inject<() => void>('graphValueChanged', () => {})
+
+const midiPorts = ref<string[]>([])
+
+onMounted(async () => {
+  if (props.data.inputs.some(p => p.portType === 'port_selection')) {
+    midiPorts.value = await invoke<string[]>('list_midi_ports')
+  }
+})
 
 function setValue(portId: string, value: number | boolean | string) {
   updateNodeData(props.id, { values: { ...props.data.values, [portId]: value } })
@@ -214,6 +223,22 @@ function iconPath(cat: string): string {
         @click.stop="browseFile(port.id)"
         @mousedown.stop
       >{{ fileLabel(data.values[port.id]) }}</button>
+
+      <!-- MIDI Port Selection -->
+      <select
+        v-else-if="port.portType === 'port_selection'"
+        class="node-field-select"
+        :value="String(data.values[port.id] ?? '')"
+        @change="setValue(port.id, ($event.target as HTMLSelectElement).value)"
+        @mousedown.stop
+      >
+        <option value="">— no port —</option>
+        <option
+          v-for="portName in midiPorts"
+          :key="portName"
+          :value="portName"
+        >{{ portName }}</option>
+      </select>
 
     </div>
   </div>

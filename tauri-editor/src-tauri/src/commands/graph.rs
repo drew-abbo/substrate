@@ -124,6 +124,7 @@ fn coerce_input(kind: &NodeInputKind, raw: &serde_json::Value) -> Option<InputVa
             let path = raw.as_str()?;
             (!path.is_empty()).then(|| InputValue::File(PathBuf::from(path)))
         }
+        NodeInputKind::PortSelection => Some(InputValue::Text(raw.as_str()?.to_string())),
         _ => None,
     }
 }
