@@ -18,7 +18,7 @@
     }
   },
   "short_description": "Inverts the colors of the input frame",
-  "long_description": "",
+  "long_description": "Inverts each color channel by subtracting it from 1.0, producing a photographic negative effect. Alpha is preserved.",
   "category": "Color",
   "subcategories": [],
   "search_keywords": ["invert", "negative", "color"]
