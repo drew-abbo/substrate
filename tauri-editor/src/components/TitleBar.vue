@@ -149,7 +149,7 @@ function close() { win.close() }
 }
 
 .wc-btn:hover {
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-1);
 }
 
@@ -176,12 +176,12 @@ function close() { win.close() }
 }
 
 .tb-menu-btn:hover {
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-1);
 }
 
 .tb-menu-btn.active {
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-1);
 }
 
@@ -200,7 +200,7 @@ function close() { win.close() }
 }
 
 .tb-tool-btn:hover {
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-1);
 }
 </style>

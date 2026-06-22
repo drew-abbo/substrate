@@ -2,7 +2,7 @@
   "name": "bio-visualizer",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others -n \"editor-vite,launcher\" -c \"cyan,green\" \"npm --prefix tauri-editor run dev\" \"cargo build -p tauri-editor && npm run dev:launcher\"",
+    "dev": "concurrently --kill-others -n \"editor,launcher\" -c \"cyan,green\" \"npm --prefix tauri-editor run dev\" \"cargo build -p tauri-editor && npm run dev:launcher\"",
     "dev:editor": "npm --prefix tauri-editor run tauri -- dev",
     "dev:launcher": "npm --prefix tauri-launcher run tauri -- dev",
     "build:editor": "npm --prefix tauri-editor run tauri -- build",

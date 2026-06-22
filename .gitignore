@@ -82,3 +82,4 @@ lerna-debug.log*
 
 # Tauri generated
 tauri-editor/src-tauri/gen/schemas
+tauri-launcher/src-tauri/gen/schemas

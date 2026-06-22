@@ -86,16 +86,10 @@ impl FrameReadback {
             wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
         );
 
-        let unpadded = unpadded_bytes_per_row as usize;
-        let padded = padded_bytes_per_row as usize;
-        let mut bytes = vec![0u8; unpadded * height as usize];
-        {
+        let mut bytes = {
             let data = slice.get_mapped_range();
-            for row in 0..height as usize {
-                let src = &data[row * padded..row * padded + unpadded];
-                bytes[row * unpadded..(row + 1) * unpadded].copy_from_slice(src);
-            }
-        }
+            strip_row_padding(&data, width, height, padded_bytes_per_row)
+        };
         buffer.unmap();
 
         for pixel in bytes.chunks_exact_mut(4) {
@@ -115,6 +109,11 @@ impl FrameReadback {
 
     /// wgpu resources are internally reference counted, so returning a clone
     /// of the cached buffer is cheap.
+    ///
+    /// ORDERING: the caller must ensure `copy_texture_to_buffer` for this
+    /// readback is submitted to the queue AFTER any `write_texture` that fills
+    /// the source texture. Both operations share the same queue, so submitting
+    /// the readback encoder after the upload encoder guarantees correct ordering.
     fn staging_buffer(&mut self, size: u64) -> wgpu::Buffer {
         if self.staging.as_ref().is_none_or(|(_, s)| *s != size) {
             let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -126,5 +125,53 @@ impl FrameReadback {
             self.staging = Some((buffer, size));
         }
         self.staging.as_ref().unwrap().0.clone()
+    }
+}
+
+/// Copies rows from a WebGPU-padded buffer into a tightly-packed output vec,
+/// stripping the alignment padding that `copy_texture_to_buffer` adds to each row.
+fn strip_row_padding(padded: &[u8], width: u32, height: u32, padded_bytes_per_row: u32) -> Vec<u8> {
+    let unpadded = (width * 4) as usize;
+    let padded_row = padded_bytes_per_row as usize;
+    let mut out = vec![0u8; unpadded * height as usize];
+    for row in 0..height as usize {
+        out[row * unpadded..(row + 1) * unpadded]
+            .copy_from_slice(&padded[row * padded_row..row * padded_row + unpadded]);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_row_padding_single_row_removes_alignment() {
+        // 2-pixel wide row = 8 bytes of real data, padded to 256
+        let padded_bpr = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let mut data = vec![0u8; padded_bpr as usize];
+        data[0..8].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let out = strip_row_padding(&data, 2, 1, padded_bpr);
+        assert_eq!(out, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn strip_row_padding_multi_row_extracts_correct_rows() {
+        let padded_bpr = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let mut data = vec![0u8; padded_bpr as usize * 2];
+        // Row 0: single pixel [10, 20, 30, 40]
+        data[0..4].copy_from_slice(&[10, 20, 30, 40]);
+        // Row 1: single pixel [50, 60, 70, 80]
+        data[padded_bpr as usize..padded_bpr as usize + 4].copy_from_slice(&[50, 60, 70, 80]);
+        let out = strip_row_padding(&data, 1, 2, padded_bpr);
+        assert_eq!(out, vec![10, 20, 30, 40, 50, 60, 70, 80]);
+    }
+
+    #[test]
+    fn strip_row_padding_tightly_packed_is_identity() {
+        // When padded_bpr equals unpadded_bpr, strip is a no-op copy
+        let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+        let out = strip_row_padding(&data, 2, 1, 8);
+        assert_eq!(out, data);
     }
 }

@@ -416,15 +416,22 @@ impl GraphExecutor {
             }
         }
 
-        let output_frame = GpuFrame {
-            texture: actual_output_texture
-                .expect("frame output must have a backing texture"),
-            view: actual_output_view.clone(),
-            size: output_size,
-            frame_id: frame_inputs
-                .first()
-                .map(|f| f.frame_id())
-                .unwrap_or_else(media::frame::Uid::generate_new),
+        // Scalar-only nodes (has_scalar_output && !has_frame_output) never use
+        // output_frame; constructing it unconditionally would panic because
+        // actual_output_texture is None for that path.
+        let output_frame = if has_frame_output {
+            Some(GpuFrame {
+                texture: actual_output_texture
+                    .expect("frame output must have a backing texture"),
+                view: actual_output_view.clone(),
+                size: output_size,
+                frame_id: frame_inputs
+                    .first()
+                    .map(|f| f.frame_id())
+                    .unwrap_or_else(media::frame::Uid::generate_new),
+            })
+        } else {
+            None
         };
 
         let mut scalar_data: Option<[f32; 4]> = None;
@@ -502,7 +509,11 @@ impl GraphExecutor {
                 NodeOutputKind::Frame => {
                     outputs.insert(
                         output_def.name.clone(),
-                        NodeValue::Frame(output_frame.clone()),
+                        NodeValue::Frame(
+                            output_frame
+                                .clone()
+                                .expect("has_frame_output guarantees output_frame"),
+                        ),
                     );
                 }
                 NodeOutputKind::Float => {
@@ -649,5 +660,52 @@ fn decode_rgba8_like(format: wgpu::TextureFormat, pixel: &[u8]) -> [f32; 4] {
             pixel[2] as f32 / 255.0,
             pixel[3] as f32 / 255.0,
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_rgba_channels_in_order() {
+        let pixel = [128u8, 64, 32, 255];
+        let result = decode_rgba8_like(wgpu::TextureFormat::Rgba8Unorm, &pixel);
+        assert_eq!(result[0], 128u8 as f32 / 255.0);
+        assert_eq!(result[1], 64u8 as f32 / 255.0);
+        assert_eq!(result[2], 32u8 as f32 / 255.0);
+        assert_eq!(result[3], 1.0);
+    }
+
+    #[test]
+    fn decode_bgra_swaps_r_and_b() {
+        // In BGRA memory layout: [B=32, G=64, R=128, A=255]
+        let pixel = [32u8, 64, 128, 255];
+        let result = decode_rgba8_like(wgpu::TextureFormat::Bgra8Unorm, &pixel);
+        // Expect RGB output = [128, 64, 32] after swap
+        assert_eq!(result[0], 128u8 as f32 / 255.0, "R channel");
+        assert_eq!(result[1], 64u8 as f32 / 255.0, "G channel");
+        assert_eq!(result[2], 32u8 as f32 / 255.0, "B channel");
+        assert_eq!(result[3], 1.0, "A channel");
+    }
+
+    #[test]
+    fn decode_bgra_srgb_same_swap_as_bgra() {
+        let pixel = [10u8, 20, 30, 200];
+        let bgra = decode_rgba8_like(wgpu::TextureFormat::Bgra8Unorm, &pixel);
+        let bgra_srgb = decode_rgba8_like(wgpu::TextureFormat::Bgra8UnormSrgb, &pixel);
+        assert_eq!(bgra, bgra_srgb);
+    }
+
+    #[test]
+    fn decode_short_pixel_returns_transparent_black() {
+        let result = decode_rgba8_like(wgpu::TextureFormat::Rgba8Unorm, &[0u8, 0, 0]);
+        assert_eq!(result, [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn decode_empty_pixel_returns_transparent_black() {
+        let result = decode_rgba8_like(wgpu::TextureFormat::Rgba8Unorm, &[]);
+        assert_eq!(result, [0.0, 0.0, 0.0, 1.0]);
     }
 }

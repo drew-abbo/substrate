@@ -90,6 +90,6 @@ function close() { win.close() }
   justify-content: center;
   transition: background 0.1s, color 0.1s;
 }
-.wc-btn:hover { background: var(--bg-elevated); color: var(--text-1); }
+.wc-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-1); }
 .wc-btn.close:hover { background: var(--danger); color: #fff; }
 </style>

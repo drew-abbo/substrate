@@ -338,7 +338,7 @@ onUnmounted(() => {
 .search-icon {
   width: 13px;
   height: 13px;
-  color: var(--text-3);
+  color: var(--text-2);
   flex-shrink: 0;
 }
 
@@ -356,7 +356,7 @@ onUnmounted(() => {
   transition: border-color 0.1s;
 }
 .search-input:focus { border-color: var(--accent); }
-.search-input::placeholder { color: var(--text-3); }
+.search-input::placeholder { color: var(--text-2); }
 .search-input::-webkit-search-cancel-button { display: none; }
 
 /* ── Project list ────────────────────────────────────────── */
@@ -377,11 +377,11 @@ onUnmounted(() => {
   transition: background 0.1s;
 }
 .project-row:hover { background: rgba(255, 255, 255, 0.05); }
-.project-row:focus-within { background: rgba(0, 204, 168, 0.04); }
+.project-row:focus-within { background: rgba(194, 182, 7, 0.04); }
 
 .creating-row {
-  background: rgba(0, 204, 168, 0.04) !important;
-  border-bottom-color: rgba(0, 204, 168, 0.15);
+  background: rgba(194, 182, 7, 0.04) !important;
+  border-bottom-color: rgba(194, 182, 7, 0.15);
 }
 
 /* Open project button (left icon) */
@@ -392,17 +392,17 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
+  background: #222222;
+  border: 1px solid #383838;
   border-radius: 7px;
-  color: var(--text-3);
+  color: var(--text-2);
   cursor: pointer;
   padding: 0;
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 .row-open-btn:hover {
   background: var(--accent-dim);
-  border-color: rgba(0, 204, 168, 0.3);
+  border-color: rgba(194, 182, 7, 0.3);
   color: var(--accent);
 }
 .row-open-btn svg { width: 17px; height: 17px; }
@@ -446,17 +446,17 @@ onUnmounted(() => {
 .project-name-input:focus {
   background: var(--bg-elevated);
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(0, 204, 168, 0.1);
+  box-shadow: 0 0 0 2px rgba(194, 182, 7, 0.1);
 }
 .project-name-input::placeholder { color: var(--text-3); font-weight: 400; }
-.project-name-input::selection { background: rgba(0, 204, 168, 0.25); }
+.project-name-input::selection { background: rgba(194, 182, 7, 0.25); }
 .project-name-input.is-creating {
-  border-color: rgba(0, 204, 168, 0.4);
+  border-color: rgba(194, 182, 7, 0.4);
   background: var(--bg-elevated);
 }
 .project-name-input.is-creating:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(0, 204, 168, 0.1);
+  box-shadow: 0 0 0 2px rgba(194, 182, 7, 0.1);
 }
 
 /* ── Meta date ───────────────────────────────────────────── */
@@ -547,7 +547,7 @@ onUnmounted(() => {
   height: 30px;
   padding: 0 14px;
   background: var(--accent-dim);
-  border: 1px solid rgba(0, 204, 168, 0.25);
+  border: 1px solid rgba(194, 182, 7, 0.25);
   border-radius: 5px;
   color: var(--accent);
   font-size: 13px;
@@ -557,8 +557,8 @@ onUnmounted(() => {
   transition: background 0.1s, border-color 0.1s;
 }
 .btn-new:hover {
-  background: rgba(0, 204, 168, 0.14);
-  border-color: rgba(0, 204, 168, 0.45);
+  background: rgba(194, 182, 7, 0.14);
+  border-color: rgba(194, 182, 7, 0.45);
 }
 .btn-new svg { width: 12px; height: 12px; flex-shrink: 0; }
 
@@ -580,9 +580,9 @@ onUnmounted(() => {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid #505050;
   border-radius: 3px;
-  background: var(--bg-elevated);
+  background: #1e1e1e;
   cursor: pointer;
   flex-shrink: 0;
   position: relative;
@@ -596,12 +596,12 @@ onUnmounted(() => {
 .keep-open-check:checked::after {
   content: '';
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: 1px;
-  width: 6px;
-  height: 4px;
-  border-left: 1.5px solid #07070f;
-  border-bottom: 1.5px solid #07070f;
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid #0e0e0e;
+  border-bottom: 2px solid #0e0e0e;
   transform: rotate(-45deg);
 }
 
@@ -687,13 +687,13 @@ onUnmounted(() => {
 
 .row-open-btn.is-launching {
   background: var(--accent-dim);
-  border-color: rgba(0, 204, 168, 0.25);
+  border-color: rgba(194, 182, 7, 0.25);
   color: var(--accent);
 }
 
 .row-open-btn.is-open {
   background: var(--accent-dim);
-  border-color: rgba(0, 204, 168, 0.3);
+  border-color: rgba(194, 182, 7, 0.3);
   color: var(--accent);
   opacity: 0.7;
 }

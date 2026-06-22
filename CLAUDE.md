@@ -1,32 +1,3 @@
-# Before making edits to vue or ts files
-
-Make sure to check the styles folders so you are not overriding something that should match the global theme
-
-# After making edits
-
-cargo check -p (crate)
-
-To fix format issues
-cargo clippy -p (crate modified)
-
-## After modifying vue or ts files
-
-Make sure to fix lint errors
-npm run lint
-
-## File Structure
-
-When creating modules alwasy organize the files like this.
-src/
-├── mod folder (example engine.rs)/
-│   └── something the mod does
-└── mod name.rs --other mods and uses
-Example
-src/
-├── node/
-│   └── node_definition.rs
-└── node.rs
-
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
@@ -127,9 +98,19 @@ All scripts are defined in the root `package.json` and use `concurrently` under 
 | `editor-core` | Shared editor logic |
 | `launcher-core` | Legacy — not used in active dev |
 
+## Brand Colors
+
+| Token | Hex | Role |
+|-------|-----|------|
+| Gold | `#C2B607` | Accent — interactive elements, highlights, focus rings |
+| Navy | `#022C40` | Primary surface — panels, search bars, section chrome |
+| Near-black | `#1A1A1A` | App base — title bars, canvas, body |
+
 ## Key Dev Notes
 
 - After editing any `.vue` or `.ts` file, run `npm run lint` in the relevant app directory.
 - After editing Rust in `tauri-editor/src-tauri/`, run `cargo check -p tauri-editor`.
 - After editing Rust in `tauri-launcher/src-tauri/`, run `cargo check -p tauri-launcher`.
+- To fix Rust format issues: `cargo clippy -p <crate>`.
 - Always check `src/styles/theme.css` and `src/styles/globals.css` before adding new styles — don't override the global theme with inline or component-scoped values.
+- When creating Rust modules, organize files as: a `mod_name.rs` declaring the module, and a `mod_name/` folder for submodules (e.g. `node.rs` + `node/node_definition.rs`).
