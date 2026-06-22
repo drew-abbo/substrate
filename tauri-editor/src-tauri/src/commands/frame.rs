@@ -46,3 +46,9 @@ pub fn set_target_fps(fps: f64, engine: State<'_, EngineState>) -> Result<(), St
     let fps = Fps::from_float(fps).map_err(|e| e.to_string())?;
     engine.send(EngineCommand::SetGlobalStreamTargetFps(fps))
 }
+
+/// Clear the manual FPS override and resume auto-adjusting from the output node.
+#[tauri::command]
+pub fn clear_target_fps(engine: State<'_, EngineState>) -> Result<(), String> {
+    engine.send(EngineCommand::ClearManualFps)
+}

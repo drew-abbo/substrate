@@ -4,6 +4,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import OutputDisplay from './OutputDisplay.vue'
 import { usePlayback } from '../composables/playback'
+import { useFpsOverride, FPS_PRESETS } from '../composables/fpsOverride'
 
 // ── Panel dimensions ─────────────────────────────────────
 const MIN_W = 220
@@ -22,6 +23,14 @@ const isDetached = ref(false)
 
 // ── Playback ──────────────────────────────────────────────
 const { isPlaying, togglePlay, syncState } = usePlayback()
+
+// ── FPS override ──────────────────────────────────────────
+const { manualEnabled, manualFps, setFps, toggle: toggleFps } = useFpsOverride()
+
+function onFpsInput(e: Event) {
+  const val = parseFloat((e.target as HTMLInputElement).value)
+  if (!isNaN(val) && val >= 1) setFps(val)
+}
 const hasFrame = ref(false)
 const fps      = ref('--')
 
@@ -228,6 +237,7 @@ onUnmounted(() => {
 
       <!-- Controls bar below the video -->
       <div class="output-controls">
+        <!-- Playback -->
         <button class="oc-btn" @click="togglePlay" :title="isPlaying ? 'Pause' : 'Play'">
           <svg v-if="isPlaying" viewBox="0 0 16 16" fill="currentColor">
             <rect x="3" y="2" width="3.5" height="12" rx="1"/>
@@ -237,7 +247,40 @@ onUnmounted(() => {
             <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
           </svg>
         </button>
-        <span class="oc-fps" v-if="hasFrame">{{ fps }} fps</span>
+
+        <span class="oc-fps" v-if="hasFrame && !manualEnabled">{{ fps }} fps</span>
+
+        <div class="oc-divider" />
+
+        <!-- FPS override -->
+        <div class="oc-fps-override">
+          <button
+            class="oc-fps-toggle"
+            :class="{ active: manualEnabled }"
+            :title="manualEnabled ? 'Clear FPS override' : 'Override FPS'"
+            @click="toggleFps"
+          >FPS</button>
+          <template v-if="manualEnabled">
+            <input
+              class="oc-fps-input"
+              type="number"
+              :value="manualFps"
+              min="1"
+              max="999"
+              step="1"
+              @change="onFpsInput"
+            />
+            <div class="oc-presets">
+              <button
+                v-for="p in FPS_PRESETS"
+                :key="p"
+                class="oc-preset"
+                :class="{ active: manualFps === p }"
+                @click="setFps(p)"
+              >{{ p }}</button>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -379,6 +422,87 @@ onUnmounted(() => {
   font-family: var(--font-mono);
   color: var(--text-3);
   white-space: nowrap;
+}
+
+.oc-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+/* ── FPS override ────────────────────────────────────────── */
+.oc-fps-override {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.oc-fps-toggle {
+  height: 20px;
+  padding: 0 7px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.oc-fps-toggle:hover { color: var(--text-1); border-color: var(--border-strong); }
+.oc-fps-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.oc-fps-input {
+  width: 44px;
+  height: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-1);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: center;
+  padding: 0 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.oc-fps-input::-webkit-inner-spin-button,
+.oc-fps-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.oc-fps-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.oc-presets {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.oc-preset {
+  height: 20px;
+  padding: 0 5px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.oc-preset:hover { color: var(--text-1); border-color: var(--border-default); }
+.oc-preset.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ── Detached notice ───────────────────────────────────── */

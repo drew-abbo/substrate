@@ -36,6 +36,7 @@ pub fn run() {
             commands::frame::get_frame,
             commands::frame::set_preview_size,
             commands::frame::set_target_fps,
+            commands::frame::clear_target_fps,
             commands::graph::update_graph,
             commands::nodes::get_node_definitions,
             commands::nodes::list_midi_ports,
