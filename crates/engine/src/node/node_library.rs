@@ -342,18 +342,25 @@ impl NodeLibrary {
             return Ok(nodes_path);
         }
 
-        // Walk up from cwd looking for a nodes/ folder (handles dev environments
-        // where the exe lives in target/debug/ or a nested subdirectory).
-        let cwd = env::current_dir().map_err(into_library_io_err)?;
-        let mut search = cwd.as_path();
-        loop {
-            if let Some(nodes_path) = find_inner_nodes_dir(search.to_path_buf()) {
-                util::debug_log_warning!("Using nodes found by walking up from working directory.");
-                return Ok(nodes_path);
-            }
-            match search.parent() {
-                Some(parent) => search = parent,
-                None => break,
+        // Dev builds run with a cwd/exe location that varies by IDE, cargo
+        // subcommand, and platform (e.g. target/debug/, a workspace member
+        // dir, ...), so there's no reliable relationship between cwd and the
+        // repo root. CARGO_MANIFEST_DIR is baked in at compile time and always
+        // points at this crate's own Cargo.toml directory, so the repo root's
+        // nodes/ folder is at a fixed, known offset from it regardless of how
+        // or where the binary is run from.
+        if cfg!(debug_assertions) {
+            let repo_root_nodes = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../nodes")
+                .canonicalize();
+            if let Ok(nodes_path) = repo_root_nodes {
+                if nodes_path.is_dir() {
+                    util::debug_log_warning!(
+                        "Resources dir has no nodes/ folder; using workspace nodes/ folder at {:?} (debug build).",
+                        nodes_path
+                    );
+                    return Ok(nodes_path);
+                }
             }
         }
 

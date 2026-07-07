@@ -65,12 +65,12 @@ pub fn get_project_id(state: State<'_, ProjectState>) -> Option<String> {
 }
 
 /// Read the saved graph for the current project. Returns an empty graph when
-/// no project is open or no data file exists yet.
+/// no data file exists yet. Errors if no project is open.
 #[tauri::command]
 pub fn load_project(state: State<'_, ProjectState>) -> Result<SavedGraph, String> {
     let guard = state.id.lock().unwrap();
     let Some(id) = guard.as_deref() else {
-        return Ok(SavedGraph::default());
+        return Err("no project is open".to_string());
     };
     let path = data_path(id);
     if !path.exists() {
@@ -80,8 +80,12 @@ pub fn load_project(state: State<'_, ProjectState>) -> Result<SavedGraph, String
     serde_json::from_reader(file).map_err(|e| e.to_string())
 }
 
-/// Persist the current graph to the project's `data.json`.
-/// No-op when no project is open.
+/// Persist the current graph to the project's `data.json`. Errors if no
+/// project is open.
+///
+/// Writes to a temporary file in the same directory and renames it into
+/// place, so a crash or I/O error mid-write can never leave `data.json`
+/// truncated or partially written.
 #[tauri::command]
 pub fn save_project(
     graph: SavedGraph,
@@ -89,16 +93,18 @@ pub fn save_project(
 ) -> Result<(), String> {
     let guard = state.id.lock().unwrap();
     let Some(id) = guard.as_deref() else {
-        return Ok(());
+        return Err("no project is open".to_string());
     };
     let path = data_path(id);
+    let tmp_path = path.with_extension("json.tmp");
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&path)
+        .open(&tmp_path)
         .map_err(|e| e.to_string())?;
-    serde_json::to_writer(file, &graph).map_err(|e| e.to_string())
+    serde_json::to_writer(file, &graph).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 /// Called from the frontend after the JS close-listener has been unregistered.

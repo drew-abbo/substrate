@@ -88,9 +88,15 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* The wgpu surface behind the webview provides the background. */
+/* The wgpu surface behind the webview provides the background. Until frames
+   arrive the surface isn't presenting, so the transparent screen would show
+   whatever is behind the window — keep the NO OUTPUT overlay opaque to cover
+   that hole. Once hasFrame flips the overlay is removed and video shows. */
 .monitor-screen.surface-mode {
   background: transparent;
+}
+.monitor-screen.surface-mode .no-signal {
+  background: var(--bg-screen);
 }
 
 /* Hide cursor when controls have auto-hidden in surface mode */

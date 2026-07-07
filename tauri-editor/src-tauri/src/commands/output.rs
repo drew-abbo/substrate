@@ -35,17 +35,30 @@ pub fn attach_output_surface(
 
     // Drop the surface before the OS window goes away, otherwise the bridge
     // thread would present to a dead window handle.
+    //
+    // The bridge thread holds `output.surface`'s lock for the full duration of
+    // `present_output`, including the actual `surface.present()` call — which
+    // can itself stall while the window is closing. Taking that lock inline on
+    // this callback (dispatched on the window-event/UI thread) would then
+    // block window teardown until the bridge's in-flight present finishes,
+    // hanging the whole app. Spawn a thread to wait for the lock instead, so
+    // close/destroy always returns immediately; the surface still gets
+    // cleared as soon as the bridge is free.
     {
         let app = app.clone();
+        let window_label = window_label.clone();
         window.on_window_event(move |event| {
             if matches!(
                 event,
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
             ) {
-                if let Some(output) = app.try_state::<OutputState>() {
-                    output.surface.lock().unwrap().take();
-                    output.rect.lock().unwrap().take();
-                }
+                let app = app.clone();
+                let window_label = window_label.clone();
+                std::thread::spawn(move || {
+                    if let Some(output) = app.try_state::<OutputState>() {
+                        clear_surface_if_owned(&output, &window_label);
+                    }
+                });
             }
         });
     }
@@ -74,10 +87,26 @@ fn pick_format(formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
     formats[0]
 }
 
+/// Release the surface, but only if it still belongs to `window_label`.
+///
+/// The docked preview and the detached window share the single surface slot
+/// and hand it off when the user detaches/re-attaches. Guarding by label makes
+/// that handoff race-proof: a window closing must not clear a surface the other
+/// window has already claimed.
+fn clear_surface_if_owned(output: &OutputState, window_label: &str) {
+    let mut surface = output.surface.lock().unwrap();
+    let owned_by_caller = surface
+        .as_ref()
+        .is_some_and(|s| s.window.label() == window_label);
+    if owned_by_caller {
+        surface.take();
+        output.rect.lock().unwrap().take();
+    }
+}
+
 #[tauri::command]
-pub fn detach_output_surface(output: State<'_, OutputState>) {
-    output.surface.lock().unwrap().take();
-    output.rect.lock().unwrap().take();
+pub fn detach_output_surface(window_label: String, output: State<'_, OutputState>) {
+    clear_surface_if_owned(&output, &window_label);
 }
 
 /// Where in the output window the video should letterbox, physical pixels.

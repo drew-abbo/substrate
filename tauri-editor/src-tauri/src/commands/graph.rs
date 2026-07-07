@@ -107,18 +107,44 @@ pub fn update_graph(
 
 /// Convert a JSON widget value from the frontend into the [`InputValue`] the
 /// input's definition expects. Returns `None` for kinds that have no widget
-/// (frames, MIDI, port selections) or values that don't parse.
+/// (frames, MIDI, port selections), values that don't parse, or numbers that
+/// are non-finite (`NaN`/`inf`) — those are rejected rather than forwarded
+/// into the GPU pipeline.
 fn coerce_input(kind: &NodeInputKind, raw: &serde_json::Value) -> Option<InputValue> {
     // <select> values and number-input strings arrive as JSON strings.
-    fn as_f64(value: &serde_json::Value) -> Option<f64> {
-        value.as_f64().or_else(|| value.as_str()?.parse().ok())
+    fn as_finite_f64(value: &serde_json::Value) -> Option<f64> {
+        let n = value.as_f64().or_else(|| value.as_str()?.parse().ok())?;
+        n.is_finite().then_some(n)
     }
 
     match kind {
-        NodeInputKind::Float { .. } => Some(InputValue::Float(as_f64(raw)? as f32)),
-        NodeInputKind::Int { .. } => Some(InputValue::Int(as_f64(raw)? as i32)),
+        NodeInputKind::Float { min, max, .. } => {
+            let mut n = as_finite_f64(raw)? as f32;
+            if let Some(min) = min {
+                n = n.max(*min);
+            }
+            if let Some(max) = max {
+                n = n.min(*max);
+            }
+            Some(InputValue::Float(n))
+        }
+        NodeInputKind::Int { min, max, .. } => {
+            let mut n = as_finite_f64(raw)? as i32;
+            if let Some(min) = min {
+                n = n.max(*min);
+            }
+            if let Some(max) = max {
+                n = n.min(*max);
+            }
+            Some(InputValue::Int(n))
+        }
         NodeInputKind::Bool { .. } => Some(InputValue::Bool(raw.as_bool()?)),
-        NodeInputKind::Enum { .. } => Some(InputValue::Enum(as_f64(raw)? as usize)),
+        NodeInputKind::Enum { choices, .. } => {
+            let n = as_finite_f64(raw)?;
+            (n >= 0.0).then_some(())?;
+            let idx = (n as usize).min(choices.len().saturating_sub(1));
+            Some(InputValue::Enum(idx))
+        }
         NodeInputKind::Text { .. } => Some(InputValue::Text(raw.as_str()?.to_string())),
         NodeInputKind::File { .. } => {
             let path = raw.as_str()?;

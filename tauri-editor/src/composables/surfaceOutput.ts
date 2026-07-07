@@ -97,7 +97,10 @@ export function useSurfaceOutput(el: Ref<HTMLElement | null>) {
     window.removeEventListener('resize', reportRect)
     window.clearInterval(infoTimer)
     unlistenFps?.()
-    if (attached) invoke('detach_output_surface').catch(() => {})
+    if (attached) {
+      const label = getCurrentWebviewWindow().label
+      invoke('detach_output_surface', { windowLabel: label }).catch(() => {})
+    }
   })
 
   return { hasFrame, resolution, fps }

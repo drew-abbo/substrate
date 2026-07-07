@@ -146,11 +146,21 @@ fn run(app: AppHandle) -> Result<(), String> {
                 info.height = frame.size.height;
                 info.active = true;
             }
-            match bridge.update_preview(frame, &frame_state) {
-                Ok(()) => {
-                    let _ = app.emit("frame-ready", ());
+            // Skip CPU readback while the GPU surface is presenting — the
+            // editor canvas is hidden when the output is detached, so the
+            // readback and device.poll() would be wasted work that also
+            // stresses the shared wgpu device.
+            let surface_active = output_state.surface.lock().unwrap().is_some();
+            if !surface_active {
+                match bridge.update_preview(frame, &frame_state) {
+                    Ok(true) => {
+                        let _ = app.emit("frame-ready", ());
+                    }
+                    // Readback is pipelined across ticks; not every tick
+                    // produces a new frame (see `FrameReadback`).
+                    Ok(false) => {}
+                    Err(e) => util::debug_log_warning!("Frame readback failed: {e}"),
                 }
-                Err(e) => util::debug_log_warning!("Frame readback failed: {e}"),
             }
         }
 
@@ -190,12 +200,15 @@ impl FrameBridge {
     }
 
     /// Downscale the frame to preview size on the GPU, then read it back for
-    /// the `get_frame` IPC path.
+    /// the `get_frame` IPC path. Returns whether a new frame was written to
+    /// `frame_state` this tick — the readback is pipelined across bridge
+    /// ticks (see `FrameReadback`), so most calls just poll an in-flight copy
+    /// and don't produce anything new yet.
     fn update_preview(
         &mut self,
         frame: &GpuFrame,
         frame_state: &FrameState,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let (src_w, src_h) = (frame.size.width, frame.size.height);
         let max_w = frame_state.preview_width.load(Ordering::Relaxed);
         let max_h = frame_state.preview_height.load(Ordering::Relaxed);
@@ -228,16 +241,25 @@ impl FrameBridge {
             ((*frame.texture).clone(), src_w, src_h)
         };
 
-        let cpu = self.readback.read(&texture, width, height)?;
+        let Some(cpu) = self.readback.read(readback::ReadbackRequest {
+            texture: &texture,
+            width,
+            height,
+            src_width: src_w,
+            src_height: src_h,
+        })?
+        else {
+            return Ok(false);
+        };
         *frame_state.latest_frame.write().unwrap() = Some(FrameData {
             bytes: cpu.bytes,
             width: cpu.width,
             height: cpu.height,
-            src_width: src_w,
-            src_height: src_h,
+            src_width: cpu.src_width,
+            src_height: cpu.src_height,
             generation: frame_state.generation.load(Ordering::SeqCst),
         });
-        Ok(())
+        Ok(true)
     }
 
     /// Blit the frame onto the detached output window's surface, letterboxed
@@ -268,7 +290,10 @@ impl FrameBridge {
                     format: out.format,
                     width: size.width,
                     height: size.height,
-                    present_mode: wgpu::PresentMode::AutoVsync,
+                    // AutoNoVsync (Mailbox / Immediate) keeps get_current_texture()
+                    // non-blocking. AutoVsync can stall indefinitely on Windows
+                    // transparent windows where DWM doesn't drain the swap chain.
+                    present_mode: wgpu::PresentMode::AutoNoVsync,
                     desired_maximum_frame_latency: 2,
                     alpha_mode: wgpu::CompositeAlphaMode::Auto,
                     view_formats: vec![],

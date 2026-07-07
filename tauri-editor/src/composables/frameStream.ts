@@ -12,9 +12,10 @@ const HEADER_BYTES = 24
 
 /**
  * Event-driven frame display: the Rust bridge emits "frame-ready" each time
- * it writes a new preview frame; we fetch + decode immediately, then blit on
- * the next animation frame. This removes the compounding of rAF interval
- * plus IPC round-trip that made polling choppy.
+ * it writes a new preview frame; we fetch and hand the pixels to a
+ * `bitmaprenderer` canvas context. That composites on the GPU instead of the
+ * main-thread raster work `putImageData` does, and the browser schedules the
+ * actual composite at the right vsync boundary itself.
  */
 function formatFps(num: number, den: number): string {
   const f = num / den
@@ -30,7 +31,7 @@ export function useFrameStream(canvas: Ref<HTMLCanvasElement | null>) {
   const fps        = ref('--')
   let running      = false
   let fetchLock    = false
-  let rafHandle    = 0
+  let ctx: ImageBitmapRenderingContext | null = null
   let unlisten:    UnlistenFn | null = null
   let unlistenFps: UnlistenFn | null = null
   let observer:    ResizeObserver | null = null
@@ -61,20 +62,25 @@ export function useFrameStream(canvas: Ref<HTMLCanvasElement | null>) {
         const srcWidth  = view.getUint32(8,  true)
         const srcHeight = view.getUint32(12, true)
         const pixels    = new Uint8ClampedArray(buf, HEADER_BYTES)
-        if (pixels.length === width * height * 4) {
-          // Copy into a new buffer owned by ImageData before the ArrayBuffer is GC'd.
-          const imageData = new ImageData(new Uint8ClampedArray(pixels), width, height)
+        if (pixels.length === width * height * 4 && canvas.value) {
+          // `pixels` isn't read again after this, so ImageData can take
+          // ownership of its buffer directly instead of copying it.
+          const imageData = new ImageData(pixels, width, height)
+          // Engine output is already display-ready sRGB with alpha forced to
+          // 255, so skip the browser's default premultiply/colour-space work.
+          const bitmap = await createImageBitmap(imageData, {
+            premultiplyAlpha: 'none',
+            colorSpaceConversion: 'none',
+          })
+          if (!canvas.value) {
+            bitmap.close()
+            return
+          }
+          if (!ctx) ctx = canvas.value.getContext('bitmaprenderer')
+          // Resizes the canvas to match the bitmap automatically.
+          ctx?.transferFromImageBitmap(bitmap)
           hasFrame.value   = true
           resolution.value = `${srcWidth} × ${srcHeight}`
-          // Blit on the next animation frame so it hits a vsync boundary.
-          cancelAnimationFrame(rafHandle)
-          rafHandle = requestAnimationFrame(() => {
-            const ctx = canvas.value?.getContext('2d')
-            if (!ctx || !canvas.value) return
-            if (canvas.value.width  !== width)  canvas.value.width  = width
-            if (canvas.value.height !== height) canvas.value.height = height
-            ctx.putImageData(imageData, 0, 0)
-          })
         }
       }
     } catch {
@@ -98,7 +104,6 @@ export function useFrameStream(canvas: Ref<HTMLCanvasElement | null>) {
   })
   onUnmounted(() => {
     running = false
-    cancelAnimationFrame(rafHandle)
     unlisten?.()
     unlistenFps?.()
     observer?.disconnect()
