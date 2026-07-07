@@ -226,6 +226,7 @@ impl Project {
 
         let data_file = match OpenOptions::new()
             .read(true)
+            .write(true)  // required for LockFileEx exclusive lock on Windows
             .create(false)
             .open(&data_file_path)
         {

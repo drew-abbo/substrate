@@ -1,0 +1,53 @@
+:root {
+  /* ── Backgrounds ───────────────────────────────────────── */
+  --bg-app:     #111111;          /* absolute darkest base              */
+  --bg-panel:   #022c40;          /* navy chrome — title bars           */
+  --bg-surface: #022c40;          /* navy chrome — search/bottom bars   */
+  --bg-elevated:#252525;          /* elevated surface on near-black bg  */
+  --bg-node:    #1e1e1e;          /* node cards on canvas               */
+  --bg-card:    #1c1c1c;          /* popovers, context menus, modals    */
+  --bg-canvas:  #1a1a1a;          /* node graph canvas / content areas  */
+  --bg-screen:  #0a0a0a;          /* video output display               */
+
+  /* ── Borders ───────────────────────────────────────────── */
+  --border-subtle:  #262626;      /* near-black area dividers           */
+  --border-default: #3a3a3a;      /* general separators                 */
+  --border-strong:  #0d3e58;      /* within navy areas                  */
+
+  /* ── Text ──────────────────────────────────────────────── */
+  --text-1: #d4d4d4;
+  --text-2: #909090;
+  --text-3: #585858;
+
+  /* ── Accent ────────────────────────────────────────────── */
+  --accent:      #c2b607;
+  --accent-dim:  rgba(194, 182, 7, 0.08);
+  --accent-glow: 0 0 20px rgba(194, 182, 7, 0.25);
+
+  /* ── Shadows ───────────────────────────────────────────── */
+  --shadow-float: 0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(194,182,7,0.06);
+  --shadow-popup: 0 6px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(194,182,7,0.04);
+
+  /* ── Typography ────────────────────────────────────────── */
+  --font-ui:   'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  /* ── Misc ──────────────────────────────────────────────── */
+  --connection-stroke: #2a4a5a;
+  --danger:            #c0392b;
+
+  /* ── Category colors ───────────────────────────────────── */
+  --cat-source:   #4a90ff;
+  --cat-audio:    #a855f7;
+  --cat-effect:   #c2b607;
+  --cat-analysis: #f59e0b;
+  --cat-output:   #f43f5e;
+  --cat-utility:  #4a7090;
+
+  /* ── Port type colors ──────────────────────────────────── */
+  --port-video: #4a90ff;
+  --port-audio: #a855f7;
+  --port-float: #c2b607;
+  --port-bool:  #22d3a8;
+  --port-any:   #4a7090;
+}

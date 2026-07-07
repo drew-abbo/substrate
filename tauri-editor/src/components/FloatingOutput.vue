@@ -1,0 +1,516 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import OutputDisplay from './OutputDisplay.vue'
+import { usePlayback } from '../composables/playback'
+import { useFpsOverride, FPS_PRESETS } from '../composables/fpsOverride'
+
+// ── Panel dimensions ─────────────────────────────────────
+const MIN_W = 220
+const MAX_W = 1200
+// header(30) + body-pad(6+6) + controls-bar(34) + bezel follows aspect-ratio
+// height formula: 76 + (width - 12) * (9/16)
+function computeHeight(w: number) {
+  return 76 + (w - 12) * (9 / 16)
+}
+
+const panelRef  = ref<HTMLElement | null>(null)
+const width     = ref(360)
+const pos       = ref({ x: 20, y: 56 })
+const minimized  = ref(false)
+const isDetached = ref(false)
+
+// ── Playback ──────────────────────────────────────────────
+const { isPlaying, togglePlay, syncState } = usePlayback()
+
+// ── FPS override ──────────────────────────────────────────
+const { manualEnabled, manualFps, setFps, toggle: toggleFps } = useFpsOverride()
+
+function onFpsInput(e: Event) {
+  const val = parseFloat((e.target as HTMLInputElement).value)
+  if (!isNaN(val) && val >= 1) setFps(val)
+}
+const hasFrame = ref(false)
+const fps      = ref('--')
+
+function formatFps(num: number, den: number): string {
+  const f = num / den
+  if (Math.abs(f - 23.976) < 0.01) return '23.976'
+  if (Math.abs(f - 29.97)  < 0.01) return '29.97'
+  if (Math.abs(f - 59.94)  < 0.01) return '59.94'
+  return den === 1 ? `${num}` : f.toFixed(3).replace(/\.?0+$/, '')
+}
+
+let unlistenFrame: UnlistenFn | null = null
+let unlistenFps:   UnlistenFn | null = null
+
+// ── Drag ─────────────────────────────────────────────────
+let dragging    = false
+let dragStart   = { mx: 0, my: 0, px: 0, py: 0 }
+
+function startDrag(e: MouseEvent) {
+  if ((e.target as HTMLElement).closest('button, .resize-handle')) return
+  dragging  = true
+  dragStart = { mx: e.clientX, my: e.clientY, px: pos.value.x, py: pos.value.y }
+  e.preventDefault()
+}
+
+// ── Resize ───────────────────────────────────────────────
+type Corner = 'tl' | 'tr' | 'bl' | 'br'
+let resizing: Corner | null = null
+let resizeStart = { mx: 0, w: 0, px: 0, py: 0 }
+
+function startResize(e: MouseEvent, corner: Corner) {
+  resizing    = corner
+  resizeStart = {
+    mx: e.clientX,
+    w:  width.value,
+    px: pos.value.x,
+    py: pos.value.y,
+  }
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+// ── Shared move handler ───────────────────────────────────
+function onMouseMove(e: MouseEvent) {
+  if (dragging) {
+    const dx = e.clientX - dragStart.mx
+    const dy = e.clientY - dragStart.my
+    pos.value = clampPos(dragStart.px + dx, dragStart.py + dy, width.value)
+    return
+  }
+
+  if (resizing) {
+    const dx = e.clientX - resizeStart.mx
+    let newW: number
+    let newX = resizeStart.px
+    let newY = resizeStart.py
+
+    // left-anchored corners shrink on left drag
+    if (resizing === 'br' || resizing === 'tr') {
+      newW = resizeStart.w + dx
+    } else {
+      newW = resizeStart.w - dx
+      newX = resizeStart.px + resizeStart.w - newW
+    }
+
+    newW = Math.max(MIN_W, Math.min(MAX_W, newW))
+
+    // top corners: keep bottom edge fixed
+    if (resizing === 'tl' || resizing === 'tr') {
+      const oldH = computeHeight(resizeStart.w)
+      const newH = computeHeight(newW)
+      newY = resizeStart.py + (oldH - newH)
+    }
+
+    // Re-clamp X for left-side resize (newX may have moved left past boundary)
+    newX = Math.max(4, newX)
+    newY = Math.max(36, newY)
+
+    width.value = newW
+    pos.value   = { x: newX, y: newY }
+  }
+}
+
+function stopAll() {
+  dragging = false
+  resizing = null
+}
+
+function clampPos(x: number, y: number, w: number) {
+  const h    = computeHeight(w)
+  const maxX = document.documentElement.clientWidth  - w - 4
+  const maxY = document.documentElement.clientHeight - h - 4
+  return { x: Math.max(4, Math.min(x, maxX)), y: Math.max(36, Math.min(y, maxY)) }
+}
+
+function onWindowResize() {
+  pos.value = clampPos(pos.value.x, pos.value.y, width.value)
+}
+
+// ── Detach ────────────────────────────────────────────────
+async function detach() {
+  try {
+    const win = new WebviewWindow('output-monitor', {
+      url:        'index.html?view=output',
+      title:      'Output Monitor — Bio Visualizer',
+      width:      960,
+      height:     540,
+      minWidth:   480,
+      minHeight:  270,
+      resizable:  true,
+      decorations: false,
+      // The webview must be see-through: the engine presents video onto a
+      // wgpu surface attached behind it (see composables/surfaceOutput.ts).
+      transparent: true,
+    })
+    win.once('tauri://created',   () => { isDetached.value = true;  minimized.value = true  })
+    win.once('tauri://destroyed', () => { isDetached.value = false; minimized.value = false; syncState() })
+  } catch (err) {
+    console.warn('Could not open output window:', err)
+  }
+}
+
+// ── Lifecycle ─────────────────────────────────────────────
+onMounted(async () => {
+  const el = panelRef.value
+  if (el) {
+    pos.value = {
+      x: document.documentElement.clientWidth  - width.value - 24,
+      y: 36 + 20,
+    }
+  }
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup',   stopAll)
+  window.addEventListener('resize',    onWindowResize)
+
+  // Sync playback state and wire up frame/fps events for the controls bar
+  await syncState()
+  unlistenFrame = await listen('frame-ready', () => { hasFrame.value = true })
+  unlistenFps   = await listen<{ num: number; den: number }>('fps-changed', ({ payload }) => {
+    fps.value = formatFps(payload.num, payload.den)
+  })
+})
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup',   stopAll)
+  window.removeEventListener('resize',    onWindowResize)
+  unlistenFrame?.()
+  unlistenFps?.()
+})
+</script>
+
+<template>
+  <div
+    ref="panelRef"
+    class="floating-panel"
+    :class="{ minimized }"
+    :style="{ left: pos.x + 'px', top: pos.y + 'px', width: width + 'px' }"
+  >
+    <!-- Corner resize handles -->
+    <template v-if="!minimized">
+      <div class="resize-handle corner-tl" @mousedown.stop="startResize($event, 'tl')" />
+      <div class="resize-handle corner-tr" @mousedown.stop="startResize($event, 'tr')" />
+      <div class="resize-handle corner-bl" @mousedown.stop="startResize($event, 'bl')" />
+      <div class="resize-handle corner-br" @mousedown.stop="startResize($event, 'br')" />
+    </template>
+
+    <!-- Header -->
+    <div class="panel-header" @mousedown="startDrag">
+      <svg class="drag-icon" viewBox="0 0 16 16" fill="currentColor">
+        <rect x="3"  y="4"  width="2" height="2" rx="0.5"/>
+        <rect x="7"  y="4"  width="2" height="2" rx="0.5"/>
+        <rect x="11" y="4"  width="2" height="2" rx="0.5"/>
+        <rect x="3"  y="8"  width="2" height="2" rx="0.5"/>
+        <rect x="7"  y="8"  width="2" height="2" rx="0.5"/>
+        <rect x="11" y="8"  width="2" height="2" rx="0.5"/>
+        <rect x="3"  y="12" width="2" height="2" rx="0.5"/>
+        <rect x="7"  y="12" width="2" height="2" rx="0.5"/>
+        <rect x="11" y="12" width="2" height="2" rx="0.5"/>
+      </svg>
+      <span class="panel-title">{{ isDetached ? 'Output (detached)' : 'Output' }}</span>
+
+      <div class="header-btns">
+        <button class="hbtn" :title="isDetached ? 'Already detached' : 'Open in separate window'"
+                :disabled="isDetached" @click="detach">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="1" y="4" width="8" height="8" rx="1"/>
+            <path d="M6 1h7v7M8 6l5-5"/>
+          </svg>
+        </button>
+        <button class="hbtn" :title="minimized ? 'Expand' : 'Minimize'" @click="minimized = !minimized">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path v-if="!minimized" d="M2 7h10"/>
+            <path v-else            d="M2 5h10M2 9h10"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Screen + controls -->
+    <div class="panel-body" v-show="!minimized && !isDetached">
+      <div class="bezel">
+        <OutputDisplay />
+      </div>
+
+      <!-- Controls bar below the video -->
+      <div class="output-controls">
+        <!-- Playback -->
+        <button class="oc-btn" @click="togglePlay" :title="isPlaying ? 'Pause' : 'Play'">
+          <svg v-if="isPlaying" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="3" y="2" width="3.5" height="12" rx="1"/>
+            <rect x="9.5" y="2" width="3.5" height="12" rx="1"/>
+          </svg>
+          <svg v-else viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+          </svg>
+        </button>
+
+        <span class="oc-fps" v-if="hasFrame && !manualEnabled">{{ fps }} fps</span>
+
+        <div class="oc-divider" />
+
+        <!-- FPS override -->
+        <div class="oc-fps-override">
+          <button
+            class="oc-fps-toggle"
+            :class="{ active: manualEnabled }"
+            :title="manualEnabled ? 'Clear FPS override' : 'Override FPS'"
+            @click="toggleFps"
+          >FPS</button>
+          <template v-if="manualEnabled">
+            <input
+              class="oc-fps-input"
+              type="number"
+              :value="manualFps"
+              min="1"
+              max="999"
+              step="1"
+              @change="onFpsInput"
+            />
+            <div class="oc-presets">
+              <button
+                v-for="p in FPS_PRESETS"
+                :key="p"
+                class="oc-preset"
+                :class="{ active: manualFps === p }"
+                @click="setFps(p)"
+              >{{ p }}</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div class="detached-notice" v-if="isDetached && !minimized">
+      Output open in separate window
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.floating-panel {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  box-shadow: var(--shadow-float);
+  overflow: visible;
+  user-select: none;
+}
+
+/* ── Corner resize handles ──────────────────────────────── */
+.resize-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 10;
+}
+/* cursors */
+.corner-br { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.corner-bl { bottom: -5px; left:  -5px; cursor: nesw-resize; }
+.corner-tr { top:    -5px; right: -5px; cursor: nesw-resize; }
+.corner-tl { top:    -5px; left:  -5px; cursor: nwse-resize; }
+
+/* visual dot in each corner */
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(0, 204, 168, 0.2);
+  transition: background 0.15s, transform 0.15s;
+}
+.resize-handle:hover::after {
+  background: rgba(0, 204, 168, 0.7);
+  transform: scale(1.2);
+}
+.corner-br::after { bottom: 2px; right: 2px; }
+.corner-bl::after { bottom: 2px; left:  2px; }
+.corner-tr::after { top:    2px; right: 2px; }
+.corner-tl::after { top:    2px; left:  2px; }
+
+/* ── Header ─────────────────────────────────────────────── */
+.panel-header {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 6px 6px 0 0;
+  cursor: grab;
+}
+.panel-header:active { cursor: grabbing; }
+
+.drag-icon { width: 12px; height: 12px; color: var(--text-3); flex-shrink: 0; }
+
+.panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  flex: 1;
+}
+
+.header-btns { display: flex; gap: 2px; align-items: center; }
+
+.hbtn {
+  width: 22px; height: 22px;
+  background: transparent;
+  border: none; border-radius: 3px;
+  color: var(--text-3);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
+}
+.hbtn:hover    { background: var(--bg-elevated); color: var(--text-1); }
+.hbtn:disabled { opacity: 0.3; cursor: not-allowed; }
+.hbtn svg      { width: 12px; height: 12px; }
+
+/* ── Body / bezel ───────────────────────────────────────── */
+.panel-body { padding: 6px; }
+
+.bezel {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
+/* ── Controls bar ───────────────────────────────────────── */
+.output-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border-radius: 0 0 4px 4px;
+}
+
+.oc-btn {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.oc-btn:hover { background: var(--bg-elevated); color: var(--text-1); }
+.oc-btn svg   { width: 14px; height: 14px; }
+
+.oc-fps {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.oc-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+/* ── FPS override ────────────────────────────────────────── */
+.oc-fps-override {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.oc-fps-toggle {
+  height: 20px;
+  padding: 0 7px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.oc-fps-toggle:hover { color: var(--text-1); border-color: var(--border-strong); }
+.oc-fps-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.oc-fps-input {
+  width: 44px;
+  height: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-1);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: center;
+  padding: 0 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.oc-fps-input::-webkit-inner-spin-button,
+.oc-fps-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.oc-fps-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.oc-presets {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.oc-preset {
+  height: 20px;
+  padding: 0 5px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.oc-preset:hover { color: var(--text-1); border-color: var(--border-default); }
+.oc-preset.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Detached notice ───────────────────────────────────── */
+.detached-notice {
+  padding: 10px 12px;
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+</style>

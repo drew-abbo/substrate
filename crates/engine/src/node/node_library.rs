@@ -210,14 +210,6 @@ impl NodeLibrary {
         // Recursively scan for node.json files
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
-        if cfg!(debug_assertions) {
-            util::debug_log_info!(
-                "Loaded {} node definitions from {:?}",
-                definitions.len(),
-                nodes_folder
-            );
-        }
-
         Ok(Self {
             definitions,
             _nodes_folder: nodes_folder,
@@ -231,14 +223,6 @@ impl NodeLibrary {
 
         let mut definitions = HashMap::new();
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
-
-        if cfg!(debug_assertions) {
-            util::debug_log_info!(
-                "Loaded {} node definitions from user data: {:?}",
-                definitions.len(),
-                nodes_folder
-            );
-        }
 
         Ok(Self {
             definitions,
@@ -267,8 +251,6 @@ impl NodeLibrary {
                     // This is a node folder!
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
-                            util::debug_log_info!("Found node: {}", def.node.name);
-
                             if definitions.contains_key(&def.node.name) {
                                 util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",
@@ -360,15 +342,29 @@ impl NodeLibrary {
             return Ok(nodes_path);
         }
 
-        // If we can't find the nodes folder where we expected it we'll check
-        // the working directory.
-        let cwd = env::current_dir().map_err(into_library_io_err)?;
-        if let Some(nodes_path) = find_inner_nodes_dir(cwd) {
-            util::debug_log_warning!("Using nodes found in working directory.");
-            return Ok(nodes_path);
+        // Dev builds run with a cwd/exe location that varies by IDE, cargo
+        // subcommand, and platform (e.g. target/debug/, a workspace member
+        // dir, ...), so there's no reliable relationship between cwd and the
+        // repo root. CARGO_MANIFEST_DIR is baked in at compile time and always
+        // points at this crate's own Cargo.toml directory, so the repo root's
+        // nodes/ folder is at a fixed, known offset from it regardless of how
+        // or where the binary is run from.
+        if cfg!(debug_assertions) {
+            let repo_root_nodes = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../nodes")
+                .canonicalize();
+            if let Ok(nodes_path) = repo_root_nodes {
+                if nodes_path.is_dir() {
+                    util::debug_log_warning!(
+                        "Resources dir has no nodes/ folder; using workspace nodes/ folder at {:?} (debug build).",
+                        nodes_path
+                    );
+                    return Ok(nodes_path);
+                }
+            }
         }
 
-        util::debug_log_error!("Nodes not found.");
+        util::debug_log_warning!("Nodes not found.");
         Err(LibraryError::NodesFolderNotFound(PathBuf::from("nodes")))
     }
 }

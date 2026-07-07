@@ -14,5 +14,5 @@
   "long_description": "Creates random noise and provides it as a float output.",
   "category": "Input",
   "subcategories": [],
-  "search_keywords": ["noise", "perlin", "random", "pattern", "texture", "generator", "procedural"]
+  "search_keywords": ["noise", "random", "pattern", "texture", "generator", "procedural", "stochastic"]
 }

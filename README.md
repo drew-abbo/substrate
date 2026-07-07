@@ -27,6 +27,7 @@
    you need to take before you can build. Run this script until it says you're
    all set (you may need to run it multiple times if you're missing
    dependencies).
+5. cd into FRONT END NAME then run `npm install` to set up the front-end
 
 ```sh
 python3 ./build_setup.py --help
@@ -108,6 +109,10 @@ expected to work on other systems with the same kind of OS (Windows, macOS,
 Linux) and the same architecture (x86_64, Arm64).
 
 ## Development
+
+### Front end Tauri
+
+cd into NAME OF FRONT END then run `npm run tauri dev`
 
 ### Binary Crates
 

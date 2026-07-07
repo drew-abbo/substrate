@@ -1,0 +1,35 @@
+:root {
+  /* ── Backgrounds ───────────────────────────────────────── */
+  --bg-app:      #111111;         /* absolute darkest base              */
+  --bg-panel:    #022c40;         /* navy chrome — title bar            */
+  --bg-surface:  #022c40;         /* navy chrome — search/bottom bars   */
+  --bg-elevated: #252525;         /* elevated surface on near-black bg  */
+  --bg-card:     #1c1c1c;         /* popovers, modals                   */
+  --bg-canvas:   #1a1a1a;         /* main content / project list        */
+
+  /* ── Borders ───────────────────────────────────────────── */
+  --border-subtle:  #262626;      /* near-black area dividers           */
+  --border-default: #3a3a3a;      /* general separators                 */
+  --border-strong:  #0d3e58;      /* within navy areas                  */
+
+  /* ── Text ──────────────────────────────────────────────── */
+  --text-1: #d4d4d4;
+  --text-2: #909090;
+  --text-3: #585858;
+
+  /* ── Accent ────────────────────────────────────────────── */
+  --accent:      #c2b607;
+  --accent-dim:  rgba(194, 182, 7, 0.08);
+  --accent-glow: 0 0 20px rgba(194, 182, 7, 0.25);
+
+  /* ── Shadows ───────────────────────────────────────────── */
+  --shadow-float: 0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(194,182,7,0.06);
+  --shadow-popup: 0 6px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(194,182,7,0.04);
+
+  /* ── Typography ────────────────────────────────────────── */
+  --font-ui:   'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  /* ── Misc ──────────────────────────────────────────────── */
+  --danger: #c0392b;
+}

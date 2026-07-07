@@ -29,6 +29,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let r = textureSample(input_texture, input_sampler, in.uv + vec2<f32>(params.red_offset, 0.0)).r;
     let g = textureSample(input_texture, input_sampler, in.uv + vec2<f32>(params.green_offset, 0.0)).g;
     let b = textureSample(input_texture, input_sampler, in.uv + vec2<f32>(params.blue_offset, 0.0)).b;
-    
-    return vec4<f32>(r, g, b, 1.0);
+    let a = textureSample(input_texture, input_sampler, in.uv).a;
+
+    return vec4<f32>(r, g, b, a);
 }
